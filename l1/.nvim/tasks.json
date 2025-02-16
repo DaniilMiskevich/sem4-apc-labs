@@ -4,7 +4,8 @@
             "export CMAKE_EXPORT_COMPILE_COMMANDS=1",
             "export CMAKE_LOG_LEVEL=NOTICE",
             "export BUILD=./build/",
-            "export RUN_BUILD_TYPE=Debug"
+            "export RUN_BUILD_TYPE=Debug",
+            "export ARGS=/tmp/ttyV0"
         ]
     },
     "tasks": {
@@ -15,6 +16,12 @@
                 "cmake -B $BUILD -S ./ --log-level=$CMAKE_LOG_LEVEL -DCMAKE_BUILD_TYPE=$RUN_BUILD_TYPE; cmake --build $BUILD",
                 "echo; $BUILD/main $ARGS"
             ]
+        },
+        "emulate ports": {
+            "cmd": "socat -d -d pty,raw,echo=0,link=/tmp/ttyV0 pty,raw,echo=0,link=/tmp/ttyV1"
+        },
+        "connect": {
+            "cmd": "picocom /tmp/ttyV1"
         },
         "debug": {
             "icon": "󰨰",

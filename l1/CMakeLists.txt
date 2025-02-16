@@ -15,7 +15,7 @@ add_executable(${MAIN} ${SRCS})
 target_include_directories(${MAIN} PRIVATE ${INCLUDE_DIR})
 
 target_compile_options(${MAIN} PUBLIC
-    -Og -g -Wall -Wextra -Wformat -fsanitize=address)
+     -Og -g -Wall -Wextra -Wformat -fsanitize=address)
 target_link_options(${MAIN} PUBLIC
-    -Og -g -Wall -Wextra -Wformat -fsanitize=address)
+     -Og -g -Wall -Wextra -Wformat -fsanitize=address)
 
