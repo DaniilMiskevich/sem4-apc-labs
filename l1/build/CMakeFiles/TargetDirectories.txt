@@ -1,0 +1,3 @@
+/home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/build/CMakeFiles/main.dir
+/home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/build/CMakeFiles/edit_cache.dir
+/home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/build/CMakeFiles/rebuild_cache.dir

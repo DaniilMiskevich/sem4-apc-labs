@@ -1,0 +1,33 @@
+{
+    "init": {
+        "cmds": [
+            "export CMAKE_EXPORT_COMPILE_COMMANDS=1",
+            "export CMAKE_LOG_LEVEL=NOTICE",
+            "export BUILD=./build/",
+            "export RUN_BUILD_TYPE=Debug"
+        ]
+    },
+    "tasks": {
+        "run": {
+            "icon": "󰐊",
+            "desc": "build and run the project",
+            "cmd": [
+                "cmake -B $BUILD -S ./ --log-level=$CMAKE_LOG_LEVEL -DCMAKE_BUILD_TYPE=$RUN_BUILD_TYPE; cmake --build $BUILD",
+                "echo; $BUILD/main $ARGS"
+            ]
+        },
+        "debug": {
+            "icon": "󰨰",
+            "desc": "build and run the project via gdb",
+            "cmd": [
+                "cmake -B $BUILD -S ./ --log-level=$CMAKE_LOG_LEVEL -DCMAKE_BUILD_TYPE=$RUN_BUILD_TYPE; cmake --build $BUILD",
+                "echo; gdb $BUILD/main $ARGS"
+            ]
+        },
+        "clean": {
+            "icon": "󰃢",
+            "desc": "clean",
+            "cmd": "rm -r $BUILD/*"
+        }
+    }
+}

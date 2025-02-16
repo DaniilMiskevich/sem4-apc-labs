@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/build",
+  "command": "/usr/lib64/ccache/cc  -I/home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/include -g -Og -g -Wall -Wextra -Wformat -fsanitize=address -o CMakeFiles/main.dir/src/main.c.o -c /home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/src/main.c",
+  "file": "/home/Daniil/_nonwork/edu/bsuir/apc/labs/l1/src/main.c",
+  "output": "CMakeFiles/main.dir/src/main.c.o"
+}
+]
