@@ -1,0 +1,10 @@
+{
+    "tasks": {
+        "emulate ports (tcp)": {
+            "cmd": "socat -dd pty,raw,echo=0,link=/tmp/ttyV0 TCP-LISTEN:9999,fork,reuseaddr"
+        },
+        "connect": {
+            "cmd": "picocom --flow=hard /tmp/ttyV0"
+        }
+    }
+}
