@@ -1,0 +1,7 @@
+{
+    "tasks": {
+        "emulate ports": {
+            "cmd": "socat -d STDIO,echo=0,raw,b9600 TCP4:localhost:9999"
+        }
+    }
+}

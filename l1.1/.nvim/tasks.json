@@ -18,10 +18,7 @@
             ]
         },
         "emulate ports": {
-            "cmd": "socat -d -d pty,raw,echo=0,link=/tmp/ttyV0 pty,raw,echo=0,link=/tmp/ttyV1"
-        },
-        "connect": {
-            "cmd": "picocom /tmp/ttyV1"
+            "cmd": "socat -d STDIO,raw,echo=0 PTY,raw,echo=0,link=/tmp/ttyV0"
         },
         "debug": {
             "icon": "󰨰",
