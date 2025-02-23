@@ -1,10 +1,12 @@
 {
+    "init": {
+        "cmds": [
+            "export SERIAL1_FILEPATH=/home/Daniil/_games/z_until_another_btrfs_volume_created/vm/dosbox/serial1"
+        ]
+    },
     "tasks": {
-        "emulate ports (tcp)": {
-            "cmd": "socat -dd pty,raw,echo=0,link=/tmp/ttyV0 TCP-LISTEN:9999,fork,reuseaddr"
-        },
-        "connect": {
-            "cmd": "picocom --flow=hard /tmp/ttyV0"
+        "emulate ports": {
+            "cmd": "socat -d STDIO,echo=0,raw,b9600 TCP4:localhost:9999"
         }
     }
 }
