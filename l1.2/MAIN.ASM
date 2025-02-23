@@ -4,8 +4,6 @@
 
 .data 
     port dw 0000h
-    read_indicator_period dw 0FFFFh
-    max_read_bytes dw 12
 
     msg db "Hello world!", 0Ah, 0Dh, 00h
 
@@ -34,7 +32,6 @@ _start:
         jne write_loop
 
     ; receive bytes
-    mov CX, max_read_bytes
     read_loop:
         mov DX, port
         call com_read
@@ -48,12 +45,8 @@ _start:
         mov DL, AL 
         int 21h
 
-        loop read_loop
+        jmp read_loop
     end_read_loop:
-
-    mov AL, 04h
-    mov DX, port
-    call com_write
 
     ; exit with code 0
     exit:
@@ -63,23 +56,14 @@ _start:
 
 
 com_read:; (DX: port) -> (AH: garbage, AL: read byte)
-    mov CX, read_indicator_period
+    push CX
+
     wait_for_data:
-        dec CX
-        test CX, CX
-        jnz skip_print_dot
-
-        push DX
-        mov CX, read_indicator_period
-        mov AH, 02h
-        mov DL, "." 
-        int 21h
-        pop DX
-        skip_print_dot:
-
+        ; read line status
         mov AH, 03h
         int 14h
         
+        ; check if data is available
         test AH, 00000001b
         jz wait_for_data
 
@@ -88,6 +72,7 @@ com_read:; (DX: port) -> (AH: garbage, AL: read byte)
     mov AL, 04h ; if not read, will be EOT
     int 14h
 
+    pop CX
     ret 
 
 

@@ -1,11 +1,14 @@
+; https://courses.cs.umbc.edu/undergraduate/211/Spring00/Burt/lectures/CntlHardware/serialPorts.html
+; https://www.plantation-productions.com/Webster/www.artofasm.com/DOS/pdf/ch22.pdf
+
 .model small
 
 .stack 100h
 
 .data 
-    port dw 0000h
-    read_indicator_period dw 0FFFFh
-    max_read_bytes dw 12
+    port_addr dw 03F8h
+    port_lcr_addr dw 03FBh
+    port_lsr_addr dw 03FDh
 
     msg db "Hello world!", 0Ah, 0Dh, 00h
 
@@ -16,16 +19,22 @@ _start:
     mov DS, AX
 
     ; init 
-    mov AH, 00h
-    mov AL, 11100011b
-    mov DX, port
-    int 14h
+    mov AL, 10000011b
+    mov DX, port_lcr_addr
+    out DX, AL
+
+    mov AX, 000Ch
+    mov DX, port_addr
+    out DX, AX
+
+    mov AL, 00000011b
+    mov DX, port_lcr_addr
+    out DX, AL
 
     ; send bytes
     mov BX, offset msg
     write_loop:
         mov AL, [BX]
-        mov DX, port
         call com_write
 
         inc BX
@@ -34,9 +43,7 @@ _start:
         jne write_loop
 
     ; receive bytes
-    mov CX, max_read_bytes
     read_loop:
-        mov DX, port
         call com_read
 
         ; break if received EOT
@@ -48,12 +55,8 @@ _start:
         mov DL, AL 
         int 21h
 
-        loop read_loop
+        jmp read_loop
     end_read_loop:
-
-    mov AL, 04h
-    mov DX, port
-    call com_write
 
     ; exit with code 0
     exit:
@@ -62,44 +65,46 @@ _start:
         int 21h
 
 
-com_read:; (DX: port) -> (AH: garbage, AL: read byte)
-    mov CX, read_indicator_period
+com_read:; () -> (AH: garbage, AL: read byte)
+    push DX
+
+    mov DX, port_lsr_addr
     wait_for_data:
-        dec CX
-        test CX, CX
-        jnz skip_print_dot
-
-        push DX
-        mov CX, read_indicator_period
-        mov AH, 02h
-        mov DL, "." 
-        int 21h
-        pop DX
-        skip_print_dot:
-
-        mov AH, 03h
-        int 14h
+        ; read line status
+        in AL, DX
         
-        test AH, 00000001b
+        ; check if data is available
+        test AL, 00000001b
         jz wait_for_data
 
-    ; read byte
-    mov AH, 02h
+    ; receive byte
     mov AL, 04h ; if not read, will be EOT
-    int 14h
+    mov DX, port_addr
+    in AL, DX
 
+    pop DX
     ret 
 
 
-com_write:; (AL: char to send, DX: port) -> ()
+com_write:; (AL: char to send) -> ()
+    push DX
+
     push AX
+    mov DX, port_lsr_addr
+    wait_for_no_data:
+        ; read line status
+        in AL, DX
+        
+        ; check if transmission is available
+        test AL, 00100000b
+        jz wait_for_no_data
+    pop AX
 
     ; send byte
-    mov AH, 01h
-    int 14h
+    mov DX, port_addr
+    out DX, AL
 
-    pop AX
+    pop DX
     ret
-
 
 end
