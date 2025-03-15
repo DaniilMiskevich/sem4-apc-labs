@@ -11,7 +11,7 @@
 
 #define elsizeof(ARR_)  (sizeof(ARR_[0]))
 #define lenof(ARR_)     (sizeof(ARR_) / elsizeof(ARR_))
-#define error(ARGS_...) fprintf(stderr, ARGS_)
+#define error(ARGS_...) (fprintf(stderr, ARGS_), fflush(stderr))
 
 int com_configure(int const fd, int const baud, uint8_t const read_buf_len) {
     typedef struct termios termios;
