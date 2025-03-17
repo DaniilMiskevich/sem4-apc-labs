@@ -1,0 +1,23 @@
+E. B C D. C B A.
+A C E. D C B..
+C D. E. C. A. A...
+- D. F a. G F E..
+C E. D C B.
+B C D. E. C. A. A...
+E. B C D. C B A.
+A C E. D C B..
+C D. E. C. A. A...
+- D. F a. G F E..
+C E. D C B.
+B C D. E. C. A. A..
+E... C... D... B... C... A... Ab... B...
+E... C... D... B... C. E. a... ab... -...
+:
+
+'-'	- pause
+'b'	- flat
+'.' 	- double longer
+'..' 	- triple longer
+'...'	- four times longer
+':' 	- loop
+';' 	- EXIT
