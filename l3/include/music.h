@@ -2,10 +2,24 @@
 #define MUSIC_H
 
 #include <stdio.h>
-#include <string.h>
 
-int music_play(void (*const beep)(unsigned, unsigned));
-void music_end(void);
-void music_set_speed(int const speed);
+typedef void (*BeepFn)(unsigned frequency, unsigned duration_ms);
+
+typedef struct MusicPlayer {
+    BeepFn _beep;
+
+    unsigned _single_delay_ms;
+
+    FILE *_stream;
+
+    char _note_buf[8];
+} MusicPlayer;
+
+void music_player_init(
+    MusicPlayer *const self,
+    unsigned const single_delay_ms,
+    BeepFn const beep
+);
+void music_player_play(MusicPlayer *const self, FILE *const stream);
 
 #endif
