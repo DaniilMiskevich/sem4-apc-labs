@@ -1,4 +1,5 @@
 #include "include/music.h"
+#include <stdio.h>
 
 /***********************************
  ** dos headers (fake on non-dos) **
@@ -76,8 +77,27 @@ static void beep(unsigned sound_frequency, unsigned sound_duration_ms) {
   outportb(0x61, inportb(0x61) & ~0x03);
 }
 
-int main() {
-  music_play(beep);
+static void print_timer_channels(void) {
+  unsigned state[3];
+
+  state[0] = (outportb(0x43, 0xE2), inportb(0x40));
+  state[1] = (outportb(0x43, 0xE4), inportb(0x41));
+  state[2] = (outportb(0x43, 0xE8), inportb(0x42));
+
+#define binfmt "i%i%i%i%i%i%i%i"
+#define tobinfmt(NUM_)                                                         \
+  ((NUM_ >> 7) & 1), ((NUM_ >> 6) & 1), ((NUM_ >> 5) & 1), ((NUM_ >> 4) & 1),  \
+      ((NUM_ >> 3) & 1), ((NUM_ >> 2) & 1), ((NUM_ >> 1) & 1), (NUM_ & 1)
+  printf("channel state: %" binfmt ", %" binfmt ", %" binfmt "\n",
+         tobinfmt(state[0]), tobinfmt(state[1]), tobinfmt(state[2]));
+#undef binfmt
+}
+
+int main(int const argc, char *const _[]) {
+  if (argc > 1)
+    music_play(beep);
+  else
+    print_timer_channels();
 
   return 0;
 }
