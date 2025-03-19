@@ -104,7 +104,7 @@ int main(int const argc, char *const argv[]) {
         file = fopen(argv[1], "r");
         if (!file) return 1;
 
-        music_player_init(&player, 222, beep);
+        music_player_init(&player, 132, beep);
         music_player_play(&player, file);
 
         fclose(file);

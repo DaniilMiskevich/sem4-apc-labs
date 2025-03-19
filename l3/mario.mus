@@ -1,0 +1,29 @@
+5E 5E. 5E. 5C 5E. 5G.. - 4G.. -
+
+5C.. 4G.. 4E.. 4A. 4B. 4A# 4A - 
+4G 5E. 5G 5A. 5F 5G. 5E. 5C 5D 4B. -
+5C.. 4G.. 4E.. 4A. 4B. 4A# 4A - 
+4G 5E. 5G 5A. 5F 5G. 5E. 5C 5D 4B. -.. 
+
+5G 5F# 5F 5D#. 5E. 4G# 4A 5C. 4A 5C 5D. -
+5G 5F# 5F 5D#. 5E. 6C. 6C 6C... -.
+5G 5F# 5F 5D#. 5E. 4G# 4A 5C. 4A 5C 5D. -
+5D#. - 5D. - 5C... -...
+
+5C 5C. 5C. 5C 5D. 5E 5C. 4A 4G.. -
+5C 5C. 5C. 5C 5D 5E.. -.....
+5C 5C. 5C. 5C 5D. 5E 5C. 4A 4G.. -
+:  
+
+note format:
+ - octave number: '0' to '9'
+ - note char: 'A' to 'G'
+ - optional flat or sharp indicator: 'b' or '#'
+ - optional length specifier (default considered 1/8): '.' (1/4), '...' (1/2), or '.......' (full).
+space to separate from the next one
+
+special notes:
+ - pause (length changed in the same way): '-'
+ - loop: ':'
+ - stop: ';'
+
