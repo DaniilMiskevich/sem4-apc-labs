@@ -88,8 +88,17 @@ static void beep(unsigned frequency, unsigned duration_ms) {
     print_timer_channels();
 } */
 
+/***************
+ ** constants **
+ ***************/
+
 #define LOOP_ITER_LIMIT        (60 * 10)
 #define LOADING_INDICATOR_FREQ (8192)
+#define DELAY_LIMIT            (10000)
+
+/************
+ ** task 1 **
+ ************/
 
 #define CMOS_REG_READ(ADDR_) (outportb(0x70, (ADDR_)), inportb(0x71))
 #define CMOS_REG_WRITE(ADDR_, VALUE_)                                          \
@@ -136,7 +145,7 @@ int set_time_task(void) {
 
     printf("Input time in the following format - 'hh:mm:ss': ");
     while (scanf(" %u:%u:%u", &h, &m, &s) != 3 || h >= 24 || m >= 60 || s >= 60)
-        printf("Invalid format! Try again: ");
+        fflush(stdin), printf("Invalid format! Try again: ");
 
     CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) | (1 << 7));
 
@@ -151,17 +160,75 @@ int set_time_task(void) {
     return 0;
 }
 
+/**************
+ ** task 2.1 **
+ **************/
+
+unsigned delay_remaining_ms = 0;
+
+void interrupt (*old_rtc_intr_handler)(void) = NULL;
+void interrupt new_rtc_intr_handler(void) {
+    disable();
+    delay_remaining_ms--;
+    if (delay_remaining_ms == 0) {
+        _dos_setvect(0x70, old_rtc_intr_handler), old_rtc_intr_handler = NULL;
+        CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) & ~(1 << 6));
+        CMOS_REG_READ(0x0C);
+
+        printf("\n(delay finished!)\n");
+        goto end;
+    }
+
+    old_rtc_intr_handler();
+
+end:
+    outportb(0xA0, 0x20), outportb(0x20, 0x20), enable();
+}
+// `freq` (1 to 15), the real freq = `32768 >> (freq - 1)`
+void my_delay(unsigned const ms, unsigned const freq) {
+    if (ms == 0) return;
+
+    CMOS_REG_WRITE(0x0A, CMOS_REG_READ(0x0A) & ~0xF | freq);
+    CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) | (1 << 6));
+
+    delay_remaining_ms = (delay_remaining_ms + ms) >= DELAY_LIMIT
+                           ? DELAY_LIMIT - 1
+                           : delay_remaining_ms + ms;
+
+    if (old_rtc_intr_handler) return;  // interrupt already configured
+
+    old_rtc_intr_handler = _dos_getvect(0x70);
+    _dos_setvect(0x70, new_rtc_intr_handler);
+}
+void delay_task(void) {
+    unsigned delay;
+    unsigned imr;
+
+    printf("How many ms? ");
+    scanf(" %u", &delay);
+
+    my_delay(delay, 6);
+}
+
+/**************
+ ** task 2.1 **
+ **************/
+
+void alarm_task(void) { printf("Alarm task not implemented!\n"); }
+
 #undef CMOS_REG_WRITE
 #undef CMOS_REG_READ
 
-void delay_task(void) { printf("Выбрана задача задержки.\n"); }
+/**********
+ ** main **
+ **********/
 
 int main() {
     int choice;
 
     do {
         printf(
-            "Select action (0 - exit, 1 - get time, 2 - set time, 3 - delay): "
+            "Select action (0 - exit, 1 - get time, 2 - set time, 3 - delay, 4 - alarm): "
         );
         scanf(" %d", &choice);
 
@@ -169,8 +236,9 @@ int main() {
         case 1: get_time_task(); break;
         case 2: set_time_task(); break;
         case 3: delay_task(); break;
+        case 4: alarm_task(); break;
         case 0: printf("byebye!\n"); break;
-        default: printf("Invalid!\n"); break;
+        default: fflush(stdin), printf("Invalid!\n"); break;
         }
     } while (choice != 0);
 
