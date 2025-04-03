@@ -90,13 +90,11 @@ int set_time_task(void) {
     return printf("Regs unavailable!\n"), 1;
 
   CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) | (1 << 7));
-
 #define TIMECOMP2BCD(TC_) ((TC_) / 10 * 16 + (TC_) % 10)
   CMOS_REG_WRITE(0x04, TIMECOMP2BCD(h));
   CMOS_REG_WRITE(0x02, TIMECOMP2BCD(m));
   CMOS_REG_WRITE(0x00, TIMECOMP2BCD(s));
 #undef TIMECOMP2BCD
-
   CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) & ~(1 << 7));
 
   return 0;
@@ -110,19 +108,20 @@ unsigned delay_remaining_ms = 0;
 static void interrupt (*old_rtc_intr_handler)(void) = NULL;
 
 static void interrupt new_rtc_intr_handler_4delay(void) {
-  delay_remaining_ms--;
-  if (delay_remaining_ms == 0) {
-    _dos_setvect(0x70, old_rtc_intr_handler), old_rtc_intr_handler = NULL;
+  if (CMOS_REG_READ(0x0C) & (1 << 6)) {
+    delay_remaining_ms--;
+    if (delay_remaining_ms == 0) {
+      _dos_setvect(0x70, old_rtc_intr_handler), old_rtc_intr_handler = NULL;
 
-    // disable periodic interrupts
-    CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) & ~(1 << 6));
+      // disable periodic interrupts
+      CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) & ~(1 << 6));
 
-    printf("\t(delay finished!)\t");
-  } else {
-    old_rtc_intr_handler();
+      printf("\t(delay finished!)\t");
+    }
   }
 
-  CMOS_REG_READ(0x0C);
+  if (old_rtc_intr_handler)
+    old_rtc_intr_handler();
   disable(), outportb(0xA0, 0x20), outportb(0x20, 0x20), enable();
 }
 // `freq` (1 to 15), the real freq = `32768 >> (freq - 1)`
@@ -175,10 +174,7 @@ static void beep(unsigned frequency, unsigned duration_ms) {
 }
 
 static void interrupt new_rtc_intr_handler_4alarm(void) {
-  CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) | (1 << 7));
-  if (CMOS_REG_READ(0x05) == CMOS_REG_READ(0x04) &&
-      CMOS_REG_READ(0x03) == CMOS_REG_READ(0x02) &&
-      CMOS_REG_READ(0x01) == CMOS_REG_READ(0x01)) {
+  if (CMOS_REG_READ(0x0C) & (1 << 5)) {
     _dos_setvect(0x70, old_rtc_intr_handler), old_rtc_intr_handler = NULL;
 
     // disable alarm interrupts
@@ -189,12 +185,10 @@ static void interrupt new_rtc_intr_handler_4alarm(void) {
     beep(1000, 200), beep(0, 50);
     beep(1000, 200), beep(0, 50);
     beep(1000, 200), beep(0, 50);
-  } else {
-    old_rtc_intr_handler();
   }
-  CMOS_REG_WRITE(0x0B, CMOS_REG_READ(0x0B) & ~(1 << 7));
 
-  CMOS_REG_READ(0x0C);
+  if (old_rtc_intr_handler)
+    old_rtc_intr_handler();
   disable(), outportb(0xA0, 0x20), outportb(0x20, 0x20), enable();
 }
 
