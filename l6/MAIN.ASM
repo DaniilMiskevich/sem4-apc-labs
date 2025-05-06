@@ -415,17 +415,18 @@ pstart:
     kb_handler PROC near
         push EAX
 
-        in AL, 60h  ; read scancode
-        shl AL, 8
-
+        in AL, 60h ; get scancode
+        shl AX, 8
         mov AL, 20h
         out 20h, AL
+        shr AX, 8
+
+        cmp AL, 01h
+        jne skip_exit
+        fj16 PCODE_SEG, pexit
+        skip_exit:
 
         inc DX
-        cmp AH, 01h
-        jne skip_exit
-        ;fj16 PCODE_SEG, pexit
-        skip_exit:
 
         pop EAX
         iretd
