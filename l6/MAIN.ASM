@@ -1,8 +1,8 @@
-rcode segment stack                                                      
+rcode SEGMENT stack                                                      
 assume CS:rcode, DS:rcode 
 
 
-seg_desc struc                                   
+seg_desc STRUC                                   
     limit_l dw 0FFFFh ; low 16 of limit
     base_l dw 0000h ; low 16 of base
     base_m db 00h ; mid 8 of base
@@ -12,23 +12,23 @@ seg_desc struc
     attrs_limit_h db -1 ; |  attrs: limit *= 0x1000 (1), 32 bits memory (1), 0, 0
                         ; |_ hight 4 of limit
     base_h db 00h ; high 8 of base
-seg_desc ends        
+seg_desc ENDS        
 
 
-intr_desc struc                                   
+intr_desc STRUC                                   
     off_l dw 0 ; low 16 of offset
     seg_sel dw 0 ; segment selector inside the gdt
     db 0 ; reserved 8
     params db -1 ; |  is present (1), privelege level (2), 0
                  ; |_ gate type: 0b1110/0b1111 for 32-bit interrupt/trap
     off_h dw 0 ; high 16 of offset
-intr_desc ends        
+intr_desc ENDS        
 
 
-gdtr_idtr struc        
+gdtr_idtr STRUC        
     limit dw 0                            
     addr dd 0 
-gdtr_idtr ends
+gdtr_idtr ENDS
 
 
 gdt:
@@ -41,41 +41,41 @@ gdt:
     ;gdt_idt seg_desc<,      ,    ,          ,          , >                  
     gdtr gdtr_idtr<(offset gdtr) - (offset gdt) - 1, (offset gdt)>
 
-PCODE_SEG equ (offset gdt_pcode) - (offset gdt)
-PDATA_SEG equ (offset gdt_pdata) - (offset gdt)
-RCODE_SEG equ (offset gdt_rcode) - (offset gdt)
-RDATA_SEG equ (offset gdt_rdata) - (offset gdt)
-TEXT_SEG equ (offset gdt_text) - (offset gdt)
+PCODE_SEG = (offset gdt_pcode) - (offset gdt)
+PDATA_SEG = (offset gdt_pdata) - (offset gdt)
+RCODE_SEG = (offset gdt_rcode) - (offset gdt)
+RDATA_SEG = (offset gdt_rdata) - (offset gdt)
+TEXT_SEG = (offset gdt_text) - (offset gdt)
 
 
 idt:
-    irpc N, 0123456789ABCDEF
+    IRPC N, 0123456789ABCDEF
         idt_0&N intr_desc<0, PCODE_SEG, , 10001111b, 0>
-    endm
-    irpc N, 0123456789ABCDEF
+    ENDM
+    IRPC N, 0123456789ABCDEF
         idt_1&N intr_desc<0, PCODE_SEG, , 10001111b, 0> 
-    endm
+    ENDM
     idt_rtc intr_desc<0, PCODE_SEG, , 10001110b, 0>
     idt_kb  intr_desc<0, PCODE_SEG, , 10001110b, 0>
-    irpc N, 23456789ABCDEF
+    IRPC N, 23456789ABCDEF
         idt_2&N intr_desc<0, PCODE_SEG, , 10001110b, 0>
-    endm
+    ENDM
     idtr gdtr_idtr<(offset idtr) - (offset idt) - 1, (offset idt)>
     null_idtr gdtr_idtr<0, 0>
 
 
-start:
+START:
     .386p ; enable 32-bit extensions
 
-    fj16 macro seg, lbl
+    fj16 MACRO seg, lbl
         db 0EAh         ; |
         dd (offset lbl) ; |
         dw seg          ; |_ manually encoded jmp seg:lbl
-    endm
-    fj32 macro seg, lbl
+    ENDM
+    fj32 MACRO seg, lbl
         db 66h ; specify 32-bit operand
         fj16 seg, lbl
-    endm
+    ENDM
 
 
     mov AX, CS ; | 
@@ -114,18 +114,18 @@ start:
 
     ; setup idtr
 
-    irpc N, 0123456789ABCDEF                 ;Заполнить векторы 00-0F исключениями
+    IRPC N, 0123456789ABCDEF                 ;Заполнить векторы 00-0F исключениями
         mov EAX, offset exception_0&N
         mov idt_0&N.off_l, AX
         shr EAX, 16
         mov idt_0&N.off_h, AX
-    endm
-    irpc N, 0123456789ABCDEF                 ;Заполнить векторы 10-1F исключениями
+    ENDM
+    IRPC N, 0123456789ABCDEF                 ;Заполнить векторы 10-1F исключениями
         mov EAX, offset exception_1&N
         mov idt_1&N.off_l, AX
         shr EAX, 16
         mov idt_1&N.off_h, AX
-    endm
+    ENDM
 
     mov EAX, offset nop_irq_master                      ;Поместить обработчик прерывания таймера на 20 шлюз
     mov idt_rtc.off_l, AX
@@ -138,20 +138,20 @@ start:
     mov idt_kb.off_h, AX
 
     ; other master interrupts
-    irpc N, 234567
+    IRPC N, 234567
         mov EAX, offset nop_irq_master
         mov idt_2&N.off_l, AX
         shr EAX, 16
         mov idt_2&N.off_h, AX
-    endm
+    ENDM
     
     ; slave interrupts
-    irpc N, 89ABCDEF
+    IRPC N, 89ABCDEF
         mov EAX, offset nop_irq_slave
         mov idt_2&N.off_l, AX
         shr EAX, 16
         mov idt_2&N.off_h, AX
-    endm
+    ENDM
 
     ; disable interrupts
     cli
@@ -165,18 +165,17 @@ start:
 
     ; enter pmode
     lgdt gdtr
-    lidt idtr
+    ;lidt idtr
     mov EAX, CR0 
     or EAX, 1b  
     mov CR0, EAX 
 
     ; enable interrupts
-    in AL, 70h        ; |
-    and AL, 01111111b ; |
-    out 70h, AL       ; |_ clear bit 7 in CMOS register to enable nmi 
-    sti               
+    ;in AL, 70h        ; |
+    ;and AL, 01111111b ; |
+    ;out 70h, AL       ; |_ clear bit 7 in CMOS register to enable nmi 
+    ;sti               
 
-    hlt
     fj32 gdt_pcode, pstart
 
 continue:
@@ -194,7 +193,7 @@ continue:
 
 
 return_to_rmode:
-    lidt null_idtr
+    ;lidt null_idtr
 
     ; back to rmode
     mov EAX, CR0
@@ -208,10 +207,10 @@ rstack db 256 dup (?)
 rstack_end:
 
 
-rcode ends   
+rcode ENDS   
 
 
-pcode segment use32
+pcode SEGMENT use32
 assume CS:pcode, DS:pcode
 
 
@@ -234,13 +233,13 @@ pstart:
         rep stosw
         pop AX
         inc DX
-        jmp lp
+        ;jmp lp
 
-    exit_rmode:
+    exit_pmode:
         fj16 gdt_rcode, return_to_rmode
 
 
-    phexb proc ; DH - value, ES:DI - start address
+    phexb PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
         push AX
 
         mov AL, DH
@@ -254,7 +253,7 @@ pstart:
         pop AX
         ret
 
-        phexhalf proc ; AL - value to print  ->  AL - char to print
+        phexhalf PROC ; AL - value to print  ->  AL - char to print
             and AL, 0Fh
             cmp AL, 09h
             jle phexhalf_add_0
@@ -270,83 +269,124 @@ pstart:
 
             phexhalf_end_add:
             ret
-        phexhalf endp
-    phexb endp
+        phexhalf ENDP
+    phexb ENDP
 
-    phexw proc ; DX - value, ES:DI - start address
+    phexw PROC ; DX - value, ES:DI - start address  ->  [ES:DI] - result
         push DX
         call phexb
         shl DX, 8
         call phexb
         pop DX
-    phexw endp
+        ret
+    phexw ENDP
 
-    phexdw proc ; EDX - value, ES:DI - start address
+    phexdw PROC ; EDX - value, ES:DI - start address  ->  [ES:DI] - result
         push DX
         shr EDX, 16
         call phexw
         pop DX
         call phexw
-    phexdw endp
+        ret
+    phexdw ENDP
 
 
     ; interrupt handlers
 
     M = 0                           
-    irpc N, 0123456789ABCDEF
-    exception_0&N label word                              ;Обработчики исключений 00h..0Fh
-        cli                                         ;Запрет прерываний
+    IRPC N, 0123456789ABCDEF
+    exception_0&N LABEL word                              
+        cli
+        push dword 0&N&h
         jmp exception_handler
-    endm
+    ENDM
     M = 010H
-    irpc N, 0123456789ABCDEF                        
-    exception_1&N label word                              ;Обработчики исключений 10h..1Fh
-        cli                                         ;Запрет прерываний
+    IRPC N, 0123456789ABCDEF                        
+    exception_1&N LABEL word
+        cli
+        push dword 1&N&h
         jmp exception_handler
-    endm
+    ENDM
 
-    exception_handler proc near                           ;Процедура вывода обработки исключений
-        mov  AX, TEXT_SEG                           ;Поместить в ax дескриптор текста
-        mov  ES, AX
+    exception_handler PROC near
+        mov AX, TEXT_SEG
+        mov ES, AX
+        xor EDI, EDI
 
-        mov AL, "E"
-        stosw
-        mov AL, "I"
-        stosw
-        mov AL, "P"
-        stosw
-        mov AL, ":"
-        stosw
-        pop EAX
-        mov EAX, EDX
+        printc MACRO c
+            mov AL, c
+            stosw
+        ENDM
+
+        ; output color
+        mov AH, 01110100b
+
+        printc " "
+
+        ; print just pushed exception index
+
+        printc "E"
+        printc "x"
+        printc "c"
+        printc ":"
+        printc " "
+
+        pop EDX
         call phexdw
 
-        mov AL, "C"
-        stosw
-        mov AL, "S"
-        stosw
-        mov AL, ":"
-        stosw
-        pop EAX
-        mov EAX, EDX
+        printc ";"
+        printc " "
+
+        ; print eip
+
+        printc "E"
+        printc "I"
+        printc "P"
+        printc ":"
+        printc " "
+
+        pop EDX
         call phexdw
 
-        mov AL, "F"
-        stosw
-        mov AL, "s"
-        stosw
-        mov AL, ":"
-        stosw
-        pop EAX
-        mov EAX, EDX
+        printc ";"
+        printc " "
+
+        ; print cs
+
+        printc "C"
+        printc "S"
+        printc ":"
+        printc " "
+
+        pop EDX
         call phexdw
 
+        printc ";"
+        printc " "
+
+        ; print flags
+
+        printc "F"
+        printc "l"
+        printc "a"
+        printc "g"
+        printc "s"
+        printc ":"
+        printc " "
+
+        pop EDX
+        call phexdw
+
+        printc "."
+
+        printc " "
+
+        ; back to rmode
         sti
-        jmp exit_rmode
-        fj16 PCODE_SEG exit_rmode
-    exception_handler endp
+        fj16 PCODE_SEG exit_pmode
+    exception_handler ENDP
 
-    kb_handler proc near
+    kb_handler PROC near
         push EAX
 
         in AL, 60h  ; read key scancode
@@ -358,14 +398,14 @@ pstart:
         inc DX
         cmp AH, 01h
         jne skip_exit
-        fj16 PCODE_SEG exit_rmode
+        fj16 PCODE_SEG exit_pmode
         skip_exit:
 
         pop EAX
         iretd
-    kb_handler endp
+    kb_handler ENDP
 
-    nop_irq_master proc near                      ;Заглушка для аппаратных прерываний ведущего контроллера
+    nop_irq_master PROC near                      ;Заглушка для аппаратных прерываний ведущего контроллера
         push EAX
 
         mov  AL, 20h
@@ -373,23 +413,23 @@ pstart:
 
         pop  EAX
         iretd
-    nop_irq_master endp
+    nop_irq_master ENDP
 
-    nop_irq_slave proc near                      ;Заглушка для аппаратных прерываний ведомого контроллера
+    nop_irq_slave PROC near                      ;Заглушка для аппаратных прерываний ведомого контроллера
         push EAX
         mov  AL, 20h
         out  20h, AL
         out  0A0h, AL
         pop  EAX
         iretd
-    nop_irq_slave endp
+    nop_irq_slave ENDP
 
 
 pstack db 256 dup (?)            
 pstack_end:
 
 
-pcode ends
+pcode ENDS
 
 
-end start
+END START
