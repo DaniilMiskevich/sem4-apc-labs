@@ -153,22 +153,48 @@ START:
         mov idt_2&N.off_h, AX
     ENDM
 
+    in AL, 92h  ; |
+    or AL, 10b  ; |
+    out 92h, AL ; |_ set bit 1 in PS/2 to enable A20 line
+
+    ; save interrupt masks
+    in AL, 21h
+    shl AX, 8
+    in AL, 0A1h
+    ;push AX
     ; disable interrupts
     cli
     in AL, 70h       ; | 
     or AL, 10000000b ; |
     out 70h, AL      ; |_ set bit 7 in CMOS register to disable nmi 
 
-    in AL, 92h  ; |
-    or AL, 10b  ; |
-    out 92h, AL ; |_ set bit 1 in PS/2 to enable A20 line
-
     ; enter pmode
-    lgdt gdtr
     lidt idtr
+    lgdt gdtr
     mov EAX, CR0 
     or EAX, 1b  
     mov CR0, EAX 
+
+    ; STOLEN PART
+    mov al,00010001b                            ;ICW1 - переинициализация контроллера прерываний
+    out 20h,al                                  ;Переинициализируем ведущий контроллер
+    out 0A0h,al                                 ;Переинициализируем ведомый контроллер
+    mov al,20h                                  ;ICW2 - номер базового вектора прерываний
+    out 21h,al                                  ;ведущего контроллера
+    mov al,28h                                  ;ICW2 - номер базового вектора прерываний
+    out 0A1h,al                                 ;ведомого контроллера
+    mov al,04h                                  ;ICW3 - ведущий контроллер подключен к 3 линии
+    out 21h,al       
+    mov al,02h                                  ;ICW3 - ведомый контроллер подключен к 3 линии
+    out 0A1h,al      
+    mov al,11h                                  ;ICW4 - режим специальной полной вложенности для ведущего контроллера
+    out 21h,al        
+    mov al,01h                                  ;ICW4 - режим обычной полной вложенности для ведомого контроллера
+    out 0A1h,al       
+    mov al, 0                                   ;Размаскировать прерывания
+    out 21h,al                                  ;Ведущего контроллера
+    out 0A1h,al                                 ;Ведомого контроллера
+    ; END STOLEN PART
 
     ; enable interrupts
     in AL, 70h        ; |
@@ -232,7 +258,7 @@ pstart:
         mov ECX, 80*3
         rep stosw
         pop AX
-        inc DX
+        ;inc DX
         jmp lp
 
     pexit:
@@ -398,7 +424,7 @@ pstart:
         inc DX
         cmp AH, 01h
         jne skip_exit
-        fj16 PCODE_SEG, pexit
+        ;fj16 PCODE_SEG, pexit
         skip_exit:
 
         pop EAX
