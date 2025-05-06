@@ -304,7 +304,7 @@ pstart:
     mov ESP, (offset pstack_end) ; |
     mov EBP, ESP                 ; |_ SP = stack bottom, as stack grows up
 
-    mov AX, TEXT_SEG ; |
+    mov AX, TEXT_SEG+1 ; |
     mov ES, AX       ; |_ ES = TEXT
 
     mov DX, 0141h
@@ -319,8 +319,26 @@ pstart:
     pexit:
         fj32 RCODE_SEG, continue
 
+    newline PROC ; AH - color, ES:EDI - any position on the cleared line  ->  ES:EDI - next line, [ES:EDI-80 .. ES:EDI] - cleared string
+        push ECX
 
-    puts PROC ; AH - color, DS:SI - string, ES:DI - start address  ->  SI - string end, [ES:DI] - result
+        xor ECX, ECX
+
+        newline_find_line:
+            add ECX, 80*2
+            cmp ECX, EDI
+            jle newline_find_line
+
+        mov AL, 0
+        sub ECX, EDI ; | 
+        shr ECX, 1   ; |_ char count til line end
+        rep stosw ; fill til the end with colored zeroes
+
+        pop ECX
+        ret
+    newline ENDP
+
+    puts PROC ; AH - color, DS:ESI - string, ES:EDI - start address  ->  DS:ESI - string end, [ES:EDI] - result
         puts_next:
             lodsb ; load char
             test AL, AL      ; |
@@ -337,14 +355,14 @@ pstart:
     b2str PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
         push AX
 
-        mov AL, DH
-        shr AL, 4
-        call _b2str_half
-        stosw
+        mov AL, DH       ; |
+        shr AL, 4        ; |
+        call _b2str_half ; |
+        stosw            ; |_ high halfbyte
 
-        mov AL, DH
-        call _b2str_half
-        stosw
+        mov AL, DH       ; |
+        call _b2str_half ; |
+        stosw            ; |_ low halfbyte                         
 
         pop AX
         ret
@@ -369,9 +387,9 @@ pstart:
     w2str PROC ; DX - value, ES:DI - start address  ->  [ES:DI] - result
         push DX
 
-        call b2str
-        shl DX, 8
-        call b2str
+        call b2str ; |_ high byte 
+        shl DX, 8  ; |
+        call b2str ; |_ low byte
 
         pop DX
         ret
@@ -380,12 +398,12 @@ pstart:
     dw2str PROC ; EDX - value, ES:DI - start address  ->  [ES:DI] - result
         push DX
 
-        shr EDX, 16
-        call w2str
+        shr EDX, 16 ; |
+        call w2str  ; |_ high word
         
         pop DX
 
-        call w2str
+        call w2str ; low word
 
         ret
     dw2str ENDP
@@ -409,63 +427,37 @@ pstart:
     exception_handler PROC near
         mov AX, TEXT_SEG
         mov ES, AX
-        xor ECX, ECX
-        mov EDI, ECX
+        xor EDI, EDI
 
-        exception_handler_newline MACRO
-            add ECX, 80*2
-            push AX
-            push ECX
+        mov AH, 01110100b ; setup color
 
-            mov AL, 0
-            sub ECX, EDI ; | 
-            shr ECX, 1   ; |_ char count til line end
-            rep stosw
-
-            pop ECX
-            pop AX
-        ENDM
-
-        exception_handler_newline
-
-        ; output color
-        mov AH, 01110100b
-
-        ; print just pushed exception index
         mov ESI, offset exception_handler_msg_exception
         call puts
         pop EDX
         call dw2str
+        call newline
 
-        exception_handler_newline
-
-        ; print eip
         mov ESI, offset exception_handler_msg_eip
         call puts
         pop EDX
         call dw2str
+        call newline
 
-        exception_handler_newline
-
-        ; print cs
         mov ESI, offset exception_handler_msg_cs
         call puts
         pop EDX
         call dw2str
+        call newline
 
-        exception_handler_newline
-
-        ; print flags
         mov ESI, offset exception_handler_msg_flags
         call puts
         pop EDX
         call dw2str
+        call newline
+        call newline
 
-        exception_handler_newline
-
-        ; back to rmode
-        sti
-        fj32 RCODE_SEG, continue
+        ; no need to sti, as rmode will do its own thing anyway
+        fj32 RCODE_SEG, continue ; return to rmode
 
         exception_handler_msg_exception db "[pmode] exception: ", 0
         exception_handler_msg_eip db "[pmode] eip: ", 0
@@ -489,6 +481,7 @@ pstart:
         mov ESI, offset kb_handler_msg_end
         mov EDI, 0
         call puts
+        call newline
 
         fj32 RCODE_SEG, continue
         skip_exit:
