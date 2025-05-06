@@ -91,17 +91,29 @@ START:
         sti               
     ENDM
 
+    write MACRO msg
+        push AX
+        push DX
+
+        mov AH, 09h
+        mov DX, offset msg
+        int 21h
+
+        pop DX
+        pop AX
+    ENDM
+
 
     mov AX, rcode               ; | 
     mov DS, AX                  ; |
     mov SS, AX                  ; |_ DS = SS = rcode (single segment)
-    mov SP, (offset rstack_end) ; SP = stack bottom, as stack grows up
-    mov BP, (offset rstack_end) ; SP = stack bottom, as stack grows up
+    mov SP, (offset rstack_end) ; |
+    mov BP, SP                  ; |_ SP = BP = stack bottom, as stack grows up
 
     ; setup gdt
 
     mov EAX, rcode ; |         
-    shl EAX, 4  ; |_ physical address of this segment
+    shl EAX, 4     ; |_ physical address of this segment
 
     add gdtr.addr, EAX ; |
     add idtr.addr, EAX ; |_ override GDTR and IDTR addrs to physical
@@ -127,7 +139,7 @@ START:
 
     ; setup idtr
 
-    ; exceptions 
+    ; exceptions
     IRPC N, 0123456789ABCDEF
         mov EAX, offset exception_0&N
         mov idt_0&N.off_l, AX
@@ -153,15 +165,13 @@ START:
     shr EAX, 16
     mov idt_kb.off_h, AX
 
-    ; other master interrupts
+    ; other master and slave interrupts
     IRPC N, 234567
         mov EAX, offset nop_irq_master
         mov idt_2&N.off_l, AX
         shr EAX, 16
         mov idt_2&N.off_h, AX
     ENDM
-    
-    ; slave interrupts
     IRPC N, 89ABCDEF
         mov EAX, offset nop_irq_slave
         mov idt_2&N.off_l, AX
@@ -175,10 +185,6 @@ START:
     or AL, 10b  ; |
     out 92h, AL ; |_ enable A20 line
 
-    ;in AL, 21h  ; |
-    ;shl AX, 8   ; |
-    ;in AL, 0A1h ; |
-    ;push AX     ; |_ save interrupt masks into AH,AL
     disable_interrupts
 
     lidt idtr
@@ -251,15 +257,12 @@ continue:
     mov AX, rcode               ; | 
     mov DS, AX                  ; |
     mov SS, AX                  ; |_ DS = CS = rcode (single segment)
-    mov SP, (offset rstack_end) ; SP = stack bottom, as stack grows up
+    mov SP, (offset rstack_end) ; | 
+    mov BP, SP                  ; |_ SP = stack bottom, as stack grows up
 
     lidt null_idtr ; clear IDT
 
     enable_interrupts
-    ;pop AX       ; |
-    ;out 0A1h, AL ; |
-    ;shr AX, 8    ; |
-    ;out 21h, AL  ; |_ load interrupt masks that are on the stack
 
     in  AL, 92h       ; |
     and AL, (not 10b) ; |
@@ -267,10 +270,17 @@ continue:
 
     ; exiting pmode complete
 
+    write msg_end
+
     mov AL, 00h
     exit:
         mov AH, 4Ch               
         int 21h                  
+
+    CR = 0Dh
+    LF = 0Ah
+    EOL = "$"
+    msg_end db "bye!", CR,LF, EOL
 
 
 rstack dw 128 dup (?) 
@@ -291,7 +301,8 @@ pstart:
     mov AX, PDATA_SEG            ; |
     mov DS, AX                   ; |
     mov SS, AX                   ; |_ DS = SS = pdata (virtual segments are different)
-    mov ESP, (offset pstack_end) ; SP = stack bottom, as stack grows up
+    mov ESP, (offset pstack_end) ; |
+    mov EBP, ESP                 ; |_ SP = stack bottom, as stack grows up
 
     mov AX, TEXT_SEG ; |
     mov ES, AX       ; |_ ES = TEXT
@@ -307,6 +318,20 @@ pstart:
 
     pexit:
         fj32 RCODE_SEG, continue
+
+
+    puts PROC ; AH - color, DS:SI - string, ES:DI - start address  ->  SI - string end, [ES:DI] - result
+        puts_next:
+            lodsb ; load char
+            test AL, AL      ; |
+            jz end_puts_next ; |_ if zero, end 
+
+            stosw
+            jmp puts_next
+        end_puts_next:
+
+        ret
+    puts ENDP
 
 
     b2str PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
@@ -384,79 +409,68 @@ pstart:
     exception_handler PROC near
         mov AX, TEXT_SEG
         mov ES, AX
-        xor EDI, EDI
+        xor ECX, ECX
+        mov EDI, ECX
 
-        putc MACRO c
-            mov AL, c
-            stosw
+        exception_handler_newline MACRO
+            add ECX, 80*2
+            push AX
+            push ECX
+
+            mov AL, 0
+            sub ECX, EDI ; | 
+            shr ECX, 1   ; |_ char count til line end
+            rep stosw
+
+            pop ECX
+            pop AX
         ENDM
+
+        exception_handler_newline
 
         ; output color
         mov AH, 01110100b
 
-        putc " "
-
         ; print just pushed exception index
-
-        putc "E"
-        putc "x"
-        putc "c"
-        putc ":"
-        putc " "
-
+        mov ESI, offset exception_handler_msg_exception
+        call puts
         pop EDX
         call dw2str
 
-        putc ";"
-        putc " "
+        exception_handler_newline
 
         ; print eip
-
-        putc "E"
-        putc "I"
-        putc "P"
-        putc ":"
-        putc " "
-
+        mov ESI, offset exception_handler_msg_eip
+        call puts
         pop EDX
         call dw2str
 
-        putc ";"
-        putc " "
+        exception_handler_newline
 
         ; print cs
-
-        putc "C"
-        putc "S"
-        putc ":"
-        putc " "
-
+        mov ESI, offset exception_handler_msg_cs
+        call puts
         pop EDX
         call dw2str
 
-        putc ";"
-        putc " "
+        exception_handler_newline
 
         ; print flags
-
-        putc "F"
-        putc "l"
-        putc "a"
-        putc "g"
-        putc "s"
-        putc ":"
-        putc " "
-
+        mov ESI, offset exception_handler_msg_flags
+        call puts
         pop EDX
         call dw2str
 
-        putc "."
-
-        putc " "
+        exception_handler_newline
 
         ; back to rmode
         sti
         fj32 RCODE_SEG, continue
+
+        exception_handler_msg_exception db "[pmode] exception: ", 0
+        exception_handler_msg_eip db "[pmode] eip: ", 0
+        exception_handler_msg_cs db "[pmode] cs: ", 0
+        exception_handler_msg_flags db "[pmode] flags: ", 0
     exception_handler ENDP
 
     kb_handler PROC near
@@ -470,6 +484,12 @@ pstart:
 
         cmp AL, 01h
         jne skip_exit
+
+        mov AH, 00000100b
+        mov ESI, offset kb_handler_msg_end
+        mov EDI, 0
+        call puts
+
         fj32 RCODE_SEG, continue
         skip_exit:
 
@@ -477,6 +497,8 @@ pstart:
 
         pop EAX
         iret
+
+        kb_handler_msg_end db "[pmode] bye!", 0
     kb_handler ENDP
 
     nop_irq_master PROC near
