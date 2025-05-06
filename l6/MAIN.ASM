@@ -1,4 +1,4 @@
-rcode SEGMENT 
+rcode SEGMENT stack
 assume CS:rcode, DS:rcode 
 
 
@@ -65,6 +65,12 @@ null_idtr gdtr_idtr<0, 0>
 
 START:
     .386p ; enable 32-bit extensions
+
+    wait4mem MACRO
+        jmp $+2
+        jmp $+2
+    ENDM
+
 
     fj32 MACRO seg, lbl
         db 0EAh         ; |
@@ -185,6 +191,10 @@ START:
     or AL, 10b  ; |
     out 92h, AL ; |_ enable A20 line
 
+    in AL, 21h   ; | 
+    shl AX, 8    ; |
+    in AL, 0A1h  ; |
+    push AX      ; |_ save interrupt masks
     disable_interrupts
 
     lidt idtr
@@ -196,27 +206,42 @@ START:
     fj16 RCODE_SEG, next_after_pmode_set
     next_after_pmode_set:
 
-    ; STOLEN PART
-    mov al,00010001b                            ;ICW1 - переинициализация контроллера прерываний
-    out 20h,al                                  ;Переинициализируем ведущий контроллер
-    out 0A0h,al                                 ;Переинициализируем ведомый контроллер
-    mov al,20h                                  ;ICW2 - номер базового вектора прерываний
-    out 21h,al                                  ;ведущего контроллера
-    mov al,28h                                  ;ICW2 - номер базового вектора прерываний
-    out 0A1h,al                                 ;ведомого контроллера
-    mov al,04h                                  ;ICW3 - ведущий контроллер подключен к 3 линии
-    out 21h,al       
-    mov al,02h                                  ;ICW3 - ведомый контроллер подключен к 3 линии
-    out 0A1h,al      
-    mov al,11h                                  ;ICW4 - режим специальной полной вложенности для ведущего контроллера
-    out 21h,al        
-    mov al,01h                                  ;ICW4 - режим обычной полной вложенности для ведомого контроллера
-    out 0A1h,al       
-    mov al, 0                                   ;Размаскировать прерывания
-    out 21h,al                                  ;Ведущего контроллера
-    out 0A1h,al                                 ;Ведомого контроллера
-    ; END STOLEN PART
+    ; reprogram interrupt controller
 
+    mov AL, 11h  ; |  init sequence for...
+    out 20h, AL  ; |  
+    wait4mem     ; |_ ...master
+    out 0A0h, AL ; |  
+    wait4mem     ; |_ ...slave
+
+    mov AL, 20h  ; |
+    out 21h, AL  ; |
+    wait4mem     ; |_ new hardware intr address for master
+    mov AL, 28h  ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ new hardware intr address for slave
+
+    mov AL, 04h  ; |
+    out 21h, AL  ; |
+    wait4mem     ; |_ line 3?
+    mov AL, 02h  ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ line 1?
+
+    mov AL, 11h  ; |  
+    out 21h, AL  ; |
+    wait4mem     ; |_ fully nested mode for master
+    mov AL, 01h  ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ default mode for slave
+
+    ; interrupt controller reprogrammed
+
+    mov AL, 0    ; |
+    out 21h, AL  ; |
+    wait4mem     ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ unmask all interrupts
     enable_interrupts
 
     ; entering pmode complete
@@ -226,27 +251,40 @@ START:
 
 continue:
 
-    ; exiting pmode starts here
+    ; exiting pmode starts here (basically the opposite action)
 
     disable_interrupts
 
-    ; STOLEN PART
-    mov al,00010001b                            ;ICW1 - переинициализация контроллера прерываний
-    out 20h,al                                  ;Переинициализируем ведущий контроллер
-    out 0A0h,al                                 ;Переинициализируем ведомый контроллер
-    mov al,8h                                   ;ICW2 - номер базового вектора прерываний
-    out 21h,al                                  ;ведущего контроллера
-    mov al,70h                                  ;ICW2 - номер базового вектора прерываний
-    out 0A1h,al                                 ;ведомого контроллера
-    mov al,04h                                  ;ICW3 - ведущий контроллер подключен к 3 линии
-    out 21h,al       
-    mov al,02h                                  ;ICW3 - ведомый контроллер подключен к 3 линии
-    out 0A1h,al      
-    mov al,11h                                  ;ICW4 - режим специальной полной вложенности для ведущего контроллера
-    out 21h,al        
-    mov al,01h                                  ;ICW4 - режим обычной полной вложенности для ведомого контроллера
-    out 0A1h,al
-    ; END STOLEN PART
+    ; reprogram interrupt controller back
+
+    mov AL, 11h  ; |  init sequence for...
+    out 20h, AL  ; |  
+    wait4mem     ; |_ ...master
+    out 0A0h, AL ; |  
+    wait4mem     ; |_ ...slave
+
+    mov AL, 8h   ; |
+    out 21h, AL  ; |
+    wait4mem     ; |_ original hardware intr address for master
+    mov AL, 70h  ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ original hardware intr address for slave
+
+    mov AL, 04h  ; |
+    out 21h, AL  ; |
+    wait4mem     ; |_ line 3?
+    mov AL, 02h  ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ line 1?
+
+    mov AL, 11h  ; |  
+    out 21h, AL  ; |
+    wait4mem     ; |_ fully nested mode for master
+    mov AL, 01h  ; |
+    out 0A1h, AL ; |
+    wait4mem     ; |_ default mode for slave
+
+    ; interrupt controller reprogrammed
 
     mov EAX, CR0     ; |
     and AL, (not 1b) ; |
@@ -262,6 +300,11 @@ continue:
 
     lidt null_idtr ; clear IDT
 
+    sub SP, 2    ; |_ we have interrupt masks stored on the stack, so reserving a word
+    pop AX       ; |
+    out 0A1h, AL ; |
+    shr AX, 8    ; |
+    out 21h, AL  ; |_ restore interrupt masks
     enable_interrupts
 
     in  AL, 92h       ; |
