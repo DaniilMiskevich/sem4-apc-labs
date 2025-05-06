@@ -304,7 +304,7 @@ pstart:
     mov ESP, (offset pstack_end) ; |
     mov EBP, ESP                 ; |_ SP = stack bottom, as stack grows up
 
-    mov AX, TEXT_SEG+1 ; |
+    mov AX, TEXT_SEG ; |
     mov ES, AX       ; |_ ES = TEXT
 
     mov DX, 0141h
@@ -317,7 +317,16 @@ pstart:
         jmp tmploop
 
     pexit:
+        mov AH, 00000110b
+        mov ESI, offset pexit_msg_end
+        xor EDI, EDI
+        call puts
+        call newline
+
         fj32 RCODE_SEG, continue
+
+    pexit_msg_end db "[pmode] bye!", 0
+
 
     newline PROC ; AH - color, ES:EDI - any position on the cleared line  ->  ES:EDI - next line, [ES:EDI-80 .. ES:EDI] - cleared string
         push ECX
@@ -411,6 +420,7 @@ pstart:
 
     ; interrupt handlers
 
+    ; exceptions
     IRPC N, 0123456789ABCDEF
     exception_0&N LABEL word                              
         cli
@@ -423,7 +433,6 @@ pstart:
         push dword 1&N&h
         jmp exception_handler
     ENDM
-
     exception_handler PROC near
         mov AX, TEXT_SEG
         mov ES, AX
@@ -457,7 +466,7 @@ pstart:
         call newline
 
         ; no need to sti, as rmode will do its own thing anyway
-        fj32 RCODE_SEG, continue ; return to rmode
+        fj32 RCODE_SEG, continue ; immediately return to rmode
 
         exception_handler_msg_exception db "[pmode] exception: ", 0
         exception_handler_msg_eip db "[pmode] eip: ", 0
@@ -465,6 +474,7 @@ pstart:
         exception_handler_msg_flags db "[pmode] flags: ", 0
     exception_handler ENDP
 
+    ; keyboard
     kb_handler PROC near
         push EAX
 
@@ -476,24 +486,16 @@ pstart:
 
         cmp AL, 01h
         jne skip_exit
-
-        mov AH, 00000100b
-        mov ESI, offset kb_handler_msg_end
-        mov EDI, 0
-        call puts
-        call newline
-
-        fj32 RCODE_SEG, continue
+        fj32 PCODE_SEG, pexit
         skip_exit:
 
         inc DL
 
         pop EAX
         iret
-
-        kb_handler_msg_end db "[pmode] bye!", 0
     kb_handler ENDP
 
+    ; nop
     nop_irq_master PROC near
         push EAX
 
@@ -503,7 +505,6 @@ pstart:
         pop  EAX
         iret
     nop_irq_master ENDP
-
     nop_irq_slave PROC near
         push EAX
 
