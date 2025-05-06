@@ -31,15 +31,15 @@ gdtr_idtr STRUC
 gdtr_idtr ENDS
 
 
-gdt:
+gdt LABEL qword
     gdt_null seg_desc<0, 0, 0, 0, 0, 0>                              
-    gdt_pcode seg_desc<,      ,    , 10011110b, 11001111b, >
-    gdt_pdata seg_desc<,      ,    , 10010010b, 11001111b, >       
     gdt_rcode seg_desc<,      ,    , 10011010b, 10001111b, >             
     gdt_rdata seg_desc<,      ,    , 10010010b, 10001111b, >       
+    gdt_pcode seg_desc<,      ,    , 10011110b, 11001111b, >
+    gdt_pdata seg_desc<,      ,    , 10010010b, 11001111b, >       
     gdt_text  seg_desc<, 8000h, 0Bh, 10010010b, 11001111b, > 
     ;gdt_idt seg_desc<,      ,    ,          ,          , >                  
-    gdtr gdtr_idtr<(offset gdtr) - (offset gdt) - 1, (offset gdt)>
+gdtr gdtr_idtr<(offset gdtr) - (offset gdt) - 1, (offset gdt)>
 
 PCODE_SEG = (offset gdt_pcode) - (offset gdt)
 PDATA_SEG = (offset gdt_pdata) - (offset gdt)
@@ -48,7 +48,7 @@ RDATA_SEG = (offset gdt_rdata) - (offset gdt)
 TEXT_SEG = (offset gdt_text) - (offset gdt)
 
 
-idt:
+idt LABEL qword
     IRPC N, 0123456789ABCDEF
         idt_0&N intr_desc<0, PCODE_SEG, , 10001111b, 0>
     ENDM
@@ -60,8 +60,8 @@ idt:
     IRPC N, 23456789ABCDEF
         idt_2&N intr_desc<0, PCODE_SEG, , 10001110b, 0>
     ENDM
-    idtr gdtr_idtr<(offset idtr) - (offset idt) - 1, (offset idt)>
-    null_idtr gdtr_idtr<0, 0>
+idtr gdtr_idtr<(offset idtr) - (offset idt) - 1, (offset idt)>
+null_idtr gdtr_idtr<0, 0>
 
 
 START:
@@ -165,35 +165,34 @@ START:
 
     ; enter pmode
     lgdt gdtr
-    ;lidt idtr
+    lidt idtr
     mov EAX, CR0 
     or EAX, 1b  
     mov CR0, EAX 
 
     ; enable interrupts
-    ;in AL, 70h        ; |
-    ;and AL, 01111111b ; |
-    ;out 70h, AL       ; |_ clear bit 7 in CMOS register to enable nmi 
-    ;sti               
+    in AL, 70h        ; |
+    and AL, 01111111b ; |
+    out 70h, AL       ; |_ clear bit 7 in CMOS register to enable nmi 
+    sti               
 
-    fj32 gdt_pcode, pstart
+    fj32 PCODE_SEG, pstart
 
 continue:
     ; setup segments
     mov AX, CS ; | 
-    mov DS, AX ; | 
-    mov SS, AX ; |_ DS = SS = CS, single segment
+    mov DS, AX ; |_ DS = CS, single segment
+    mov SS, AX  
     mov SP, (offset rstack_end) ; setup stack 
 
-
-    ; exit
     mov AL, 00h
-    mov AH, 4Ch               
-    int 21h                  
+    rexit:
+        mov AH, 4Ch               
+        int 21h                  
 
 
-return_to_rmode:
-    ;lidt null_idtr
+return_to_rmode PROC
+    lidt null_idtr
 
     ; back to rmode
     mov EAX, CR0
@@ -201,6 +200,7 @@ return_to_rmode:
     mov CR0, EAX 
 
     fj32 rcode, continue
+return_to_rmode ENDP
 
 
 rstack db 256 dup (?) 
@@ -217,12 +217,12 @@ assume CS:pcode, DS:pcode
 pstart:
 
     ; setup segments
-    mov AX, PDATA_SEG          ; |
-    mov DS, AX                 ; |
-    mov SS, AX                 ; |_ DS = SS = PDATA, single segment
+    mov AX, PDATA_SEG ; |
+    mov DS, AX        ; |
+    mov SS, AX        ; |_ DS = SS = pdata
     mov ESP, (offset pstack_end) ; setup stack
-    mov AX, TEXT_SEG           ; |
-    mov ES, AX                 ; |_ ES = TEXT
+    mov AX, TEXT_SEG ; |
+    mov ES, AX       ; |_ ES = TEXT
 
     mov DX, 0141h
     lp:
@@ -233,10 +233,10 @@ pstart:
         rep stosw
         pop AX
         inc DX
-        ;jmp lp
+        jmp lp
 
-    exit_pmode:
-        fj16 gdt_rcode, return_to_rmode
+    pexit:
+        fj16 RCODE_SEG, return_to_rmode
 
 
     phexb PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
@@ -383,13 +383,13 @@ pstart:
 
         ; back to rmode
         sti
-        fj16 PCODE_SEG exit_pmode
+        fj16 PCODE_SEG, pexit
     exception_handler ENDP
 
     kb_handler PROC near
         push EAX
 
-        in AL, 60h  ; read key scancode
+        in AL, 60h  ; read scancode
         shl AL, 8
 
         mov AL, 20h
@@ -398,7 +398,7 @@ pstart:
         inc DX
         cmp AH, 01h
         jne skip_exit
-        fj16 PCODE_SEG exit_pmode
+        fj16 PCODE_SEG, pexit
         skip_exit:
 
         pop EAX
