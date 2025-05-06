@@ -77,6 +77,19 @@ START:
         fj16 seg, lbl
     ENDM
 
+    disable_interrupts MACRO 
+        cli
+        in AL, 70h       ; | 
+        or AL, 10000000b ; |
+        out 70h, AL      ; |_ set bit 7 in CMOS register to disable nmi 
+    ENDM
+    enable_interrupts MACRO
+        in AL, 70h        ; |
+        and AL, 01111111b ; |
+        out 70h, AL       ; |_ clear bit 7 in CMOS register to enable nmi 
+        sti               
+    ENDM
+
 
     mov AX, CS ; | 
     mov DS, AX ; |_ DS = CS, single segment
@@ -158,15 +171,11 @@ START:
     out 92h, AL ; |_ set bit 1 in PS/2 to enable A20 line
 
     ; save interrupt masks
-    in AL, 21h
-    shl AX, 8
-    in AL, 0A1h
+    ;in AL, 21h
+    ;shl AX, 8
+    ;in AL, 0A1h
     ;push AX
-    ; disable interrupts
-    cli
-    in AL, 70h       ; | 
-    or AL, 10000000b ; |
-    out 70h, AL      ; |_ set bit 7 in CMOS register to disable nmi 
+    disable_interrupts
 
     ; enter pmode
     lidt idtr
@@ -196,15 +205,31 @@ START:
     out 0A1h,al                                 ;Ведомого контроллера
     ; END STOLEN PART
 
-    ; enable interrupts
-    in AL, 70h        ; |
-    and AL, 01111111b ; |
-    out 70h, AL       ; |_ clear bit 7 in CMOS register to enable nmi 
-    sti               
+    enable_interrupts
 
     fj32 PCODE_SEG, pstart
 
 continue:
+    disable_interrupts
+    ; STOLEN PART
+    mov al,00010001b                            ;ICW1 - переинициализация контроллера прерываний
+    out 20h,al                                  ;Переинициализируем ведущий контроллер
+    out 0A0h,al                                 ;Переинициализируем ведомый контроллер
+    mov al,8h                                   ;ICW2 - номер базового вектора прерываний
+    out 21h,al                                  ;ведущего контроллера
+    mov al,70h                                  ;ICW2 - номер базового вектора прерываний
+    out 0A1h,al                                 ;ведомого контроллера
+    mov al,04h                                  ;ICW3 - ведущий контроллер подключен к 3 линии
+    out 21h,al       
+    mov al,02h                                  ;ICW3 - ведомый контроллер подключен к 3 линии
+    out 0A1h,al      
+    mov al,11h                                  ;ICW4 - режим специальной полной вложенности для ведущего контроллера
+    out 21h,al        
+    mov al,01h                                  ;ICW4 - режим обычной полной вложенности для ведомого контроллера
+    out 0A1h,al
+    ; END STOLEN PART
+    enable_interrupts
+
     ; setup segments
     mov AX, CS ; | 
     mov DS, AX ; |_ DS = CS, single segment
