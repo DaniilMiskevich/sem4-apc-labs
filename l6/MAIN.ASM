@@ -47,18 +47,13 @@ PDATA_SEG = (offset gdt_pdata) - (offset gdt)
 TEXT_SEG = (offset gdt_text) - (offset gdt)
 
 
+EXCEPTION_COUNT = 32
+IRQ_COUNT = 16
+
 idt LABEL qword
-    IRPC N, 0123456789ABCDEF
-        idt_0&N intr_desc<0, PCODE_SEG, , 10001111b, 0>
-    ENDM
-    IRPC N, 0123456789ABCDEF
-        idt_1&N intr_desc<0, PCODE_SEG, , 10001111b, 0> 
-    ENDM
-    idt_rtc intr_desc<0, PCODE_SEG, , 10001110b, 0>
-    idt_kb  intr_desc<0, PCODE_SEG, , 10001110b, 0>
-    IRPC N, 23456789ABCDEF
-        idt_2&N intr_desc<0, PCODE_SEG, , 10001110b, 0>
-    ENDM
+    idt_exceptions intr_desc EXCEPTION_COUNT dup (<0, PCODE_SEG, , 10001111b, 0>)
+    idt_irqs intr_desc IRQ_COUNT dup (<0, PCODE_SEG, , 10001110b, 0>)
+idt_end LABEL 
 idtr gdtr_idtr<(offset idtr) - (offset idt) - 1, (offset idt)>
 null_idtr gdtr_idtr<0, 0>
 
@@ -102,7 +97,7 @@ START:
         push DX
 
         mov AH, 09h
-        mov DX, offset msg
+        mov DX, (offset msg)
         int 21h
 
         pop DX
@@ -146,46 +141,41 @@ START:
     ; setup idtr
 
     ; exceptions
-    IRPC N, 0123456789ABCDEF
-        mov EAX, offset exception_0&N
-        mov idt_0&N.off_l, AX
+    xor BX, BX
+    IRP I,<0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31>
+        mov EAX, (offset exception_&I)
+        mov idt_exceptions[BX].off_l, AX
         shr EAX, 16
-        mov idt_0&N.off_h, AX
-    ENDM
-    IRPC N, 0123456789ABCDEF
-        mov EAX, offset exception_1&N
-        mov idt_1&N.off_l, AX
-        shr EAX, 16
-        mov idt_1&N.off_h, AX
+        mov idt_exceptions[BX].off_h, AX
+
+        add BX, 1*8 ; account for descriptor size
     ENDM
 
-    ; timer interrupt
-    mov EAX, offset nop_irq_master
-    mov idt_rtc.off_l, AX
+    ; default interrupts
+    xor BX, BX
+    setup_irq:
+        mov EAX, (offset nop_intr_master)
+        mov idt_irqs[BX].off_l, AX
+        shr EAX, 16
+        mov idt_irqs[BX].off_h, AX
+
+        add BX, 1*8 ; account for descriptor size
+        cmp BX, IRQ_COUNT*8 
+        jl setup_irq        
+
+    ; rtc interrupt
+    mov EAX, (offset rtc_intr)
+    mov idt_irqs[8*8].off_l, AX
     shr EAX, 16
-    mov idt_rtc.off_h, AX
+    mov idt_irqs[8*8].off_h, AX
 
     ; keyboard interrupt
-    mov EAX, offset kb_handler
-    mov idt_kb.off_l, AX
+    mov EAX, (offset kb_intr)
+    mov idt_irqs[1*8].off_l, AX
     shr EAX, 16
-    mov idt_kb.off_h, AX
+    mov idt_irqs[1*8].off_h, AX
 
-    ; other master and slave interrupts
-    IRPC N, 234567
-        mov EAX, offset nop_irq_master
-        mov idt_2&N.off_l, AX
-        shr EAX, 16
-        mov idt_2&N.off_h, AX
-    ENDM
-    IRPC N, 89ABCDEF
-        mov EAX, offset nop_irq_slave
-        mov idt_2&N.off_l, AX
-        shr EAX, 16
-        mov idt_2&N.off_h, AX
-    ENDM
-
-    ; entering pmode starts here
+    ; start entering pmode
 
     in AL, 92h  ; |
     or AL, 10b  ; |
@@ -217,7 +207,7 @@ START:
     mov AL, 20h  ; |
     out 21h, AL  ; |
     wait4mem     ; |_ new hardware intr address for master
-    mov AL, 28h  ; |
+    add AL, 8    ; |
     out 0A1h, AL ; |
     wait4mem     ; |_ new hardware intr address for slave
 
@@ -235,7 +225,7 @@ START:
     out 0A1h, AL ; |
     wait4mem     ; |_ default mode for slave
 
-    ; interrupt controller reprogrammed
+    ; final steps
 
     mov AL, 0    ; |
     out 21h, AL  ; |
@@ -244,14 +234,14 @@ START:
     wait4mem     ; |_ unmask all interrupts
     enable_interrupts
 
-    ; entering pmode complete
+    ; we are in pmode now!
 
     fj16 PCODE_SEG, pstart
 
 
 continue:
 
-    ; exiting pmode starts here (basically the opposite action)
+    ; start exiting pmode (basically the opposite action)
 
     disable_interrupts
 
@@ -284,11 +274,11 @@ continue:
     out 0A1h, AL ; |
     wait4mem     ; |_ default mode for slave
 
-    ; interrupt controller reprogrammed
+    ; 
 
     mov EAX, CR0     ; |
     and AL, (not 1b) ; |
-    mov CR0, EAX     ; |_ clear PMODE but to exit pmode
+    mov CR0, EAX     ; |_ clear PMODE bit to exit pmode
     fj16 rcode, next_after_pmode_clear
     next_after_pmode_clear:
 
@@ -311,7 +301,7 @@ continue:
     and AL, (not 10b) ; |
     out 92h, AL       ; |_ disable A20 line
 
-    ; exiting pmode complete
+    ; we are back in rmode!
 
     write msg_end
 
@@ -361,7 +351,7 @@ pstart:
 
     pexit:
         mov AH, 00000110b
-        mov ESI, offset pexit_msg_end
+        mov ESI, (offset pexit_msg_end)
         xor EDI, EDI
         call puts
         call newline
@@ -461,47 +451,42 @@ pstart:
     dw2str ENDP
 
 
-    ; interrupt handlers
+    ; handlers
 
-    ; exceptions
-    IRPC N, 0123456789ABCDEF
-    exception_0&N LABEL word                              
+    ;exception_handlers:
+    IRP I,<0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31>
+    exception_&I:
         cli
-        push dword 0&N&h
-        jmp exception_handler
+        push dword I
+        jmp exception
     ENDM
-    IRPC N, 0123456789ABCDEF                        
-    exception_1&N LABEL word
-        cli
-        push dword 1&N&h
-        jmp exception_handler
-    ENDM
-    exception_handler PROC near
+
+    exception PROC near
         mov AX, TEXT_SEG
         mov ES, AX
         xor EDI, EDI
 
         mov AH, 01110100b ; setup color
 
-        mov ESI, offset exception_handler_msg_exception
+        mov ESI, (offset exception_msg_exception)
         call puts
         pop EDX
         call dw2str
         call newline
 
-        mov ESI, offset exception_handler_msg_eip
+        mov ESI, (offset exception_msg_eip)
         call puts
         pop EDX
         call dw2str
         call newline
 
-        mov ESI, offset exception_handler_msg_cs
+        mov ESI, (offset exception_msg_cs)
         call puts
         pop EDX
         call dw2str
         call newline
 
-        mov ESI, offset exception_handler_msg_flags
+        mov ESI, (offset exception_msg_flags)
         call puts
         pop EDX
         call dw2str
@@ -511,15 +496,52 @@ pstart:
         ; no need to sti, as rmode will do its own thing anyway
         fj32 RCODE_SEG, continue ; immediately return to rmode
 
-        exception_handler_msg_exception db "[pmode] exception: ", 0
-        exception_handler_msg_eip db "[pmode] eip: ", 0
-        exception_handler_msg_cs db "[pmode] cs: ", 0
-        exception_handler_msg_flags db "[pmode] flags: ", 0
-    exception_handler ENDP
+        exception_msg_exception db "[pmode] exception: ", 0
+        exception_msg_eip db "[pmode] eip: ", 0
+        exception_msg_cs db "[pmode] cs: ", 0
+        exception_msg_flags db "[pmode] flags: ", 0
+    exception ENDP
+
+
+    ; nop
+    nop_intr_master PROC near
+        push AX
+
+        mov  AL, 20h
+        out  20h, AL
+
+        pop  AX
+        iret
+    nop_intr_master ENDP
+    nop_intr_slave PROC near
+        push AX
+
+        mov  AL, 20h
+        out  20h, AL
+        out  0A0h, AL
+
+        pop  AX
+        iret
+    nop_intr_slave ENDP
+
+
+    ; rtc
+    rtc_intr PROC near
+        push AX
+
+        mov AL, 20h
+        out 20h, AL
+
+        inc DL
+
+        pop AX
+        iret
+    rtc_intr ENDP
+
 
     ; keyboard
-    kb_handler PROC near
-        push EAX
+    kb_intr PROC near
+        push AX
 
         in AL, 60h ; get scancode
         shl AX, 8
@@ -534,30 +556,9 @@ pstart:
 
         inc DL
 
-        pop EAX
+        pop AX
         iret
-    kb_handler ENDP
-
-    ; nop
-    nop_irq_master PROC near
-        push EAX
-
-        mov  AL, 20h
-        out  20h, AL
-
-        pop  EAX
-        iret
-    nop_irq_master ENDP
-    nop_irq_slave PROC near
-        push EAX
-
-        mov  AL, 20h
-        out  20h, AL
-        out  0A0h, AL
-
-        pop  EAX
-        iret
-    nop_irq_slave ENDP
+    kb_intr ENDP
 
 
 pstack dw 128 dup (?)            
