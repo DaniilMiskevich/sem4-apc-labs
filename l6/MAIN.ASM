@@ -61,11 +61,14 @@ null_idtr gdtr_idtr<0, 0>
 START:
     .386p ; enable 32-bit extensions
 
-    wait4mem MACRO
+    waitabit MACRO
         jmp $+2
         jmp $+2
     ENDM
 
+    hang MACRO
+        jmp $
+    ENDM
 
     fj32 MACRO seg, lbl
         db 0EAh         ; |
@@ -78,18 +81,26 @@ START:
     ENDM
 
     disable_interrupts MACRO ; ->  AL - garbage
+        push AX
+
         cli
         in AL, 70h       ; | 
         or AL, 10000000b ; |
         out 70h, AL      ; |_ set bit 7 in CMOS register to disable NMI
         nop
+
+        pop AX
     ENDM
     enable_interrupts MACRO ; ->  AL - garbage
+        push AX
+
         in AL, 70h              ; |
         and AL, (not 10000000b) ; |
         out 70h, AL             ; |_ clear bit 7 in CMOS register to enable NMI
         nop
         sti               
+
+        pop AX
     ENDM
 
     write MACRO msg
@@ -103,13 +114,78 @@ START:
         pop DX
         pop AX
     ENDM
+    newline MACRO
+        push AX
+        push DX
+
+        mov AH, 02h
+        mov DL, 0Ah
+        int 21h
+        mov AH, 02h
+        mov DL, 0Dh
+        int 21h
+
+        pop DX
+        pop AX
+    ENDM
+    read MACRO buf_suff
+        push AX
+        push BX
+        push DX
+
+        mov DX, (offset buf_suff)
+        mov AH, 0Ah
+        int 21h
+
+        xor AH, AH
+        mov AL, buf_suff[1]
+        mov BX, (offset buf_suff) + 2
+        add BX, AX
+        mov byte ptr [BX], EOL
+
+        pop DX
+        pop BX
+        pop AX
+    ENDM
 
 
     mov AX, rcode               ; | 
     mov DS, AX                  ; |
-    mov SS, AX                  ; |_ DS = SS = rcode (single segment)
+    mov SS, AX                  ; |_ DS = SS = RCODE (single segment)
     mov SP, (offset rstack_end) ; |
     mov BP, SP                  ; |_ SP = BP = stack bottom, as stack grows up
+
+    ; read timeout
+
+    write msg_input_timeout 
+    read timeout_buf_suff
+    newline 
+
+    mov SI, (offset timeout_buf)
+    mov CX, 10
+    call str2num
+    mov CX, AX ; save result, as AL is used later
+
+    disable_interrupts
+
+    ; start rtc
+
+    mov AL, 8Ah         ; |
+    out 70h, AL         ; |
+    in AL, 71h          ; |
+    and AL, (not 1111b) ; |
+    or AL, CL           ; |
+    out 71h, AL         ; |_ set frequency
+
+    mov AL, 8Bh         ; |
+    out 70h, AL         ; |
+    in AL, 71h          ; |
+    or AL, (1 shl 6)    ; |
+    out 71h, AL         ; |_ set periodic
+
+    mov AL, 0Dh         ; |
+    out 70h, AL         ; |
+    in AL, 71h          ; |_ end command
 
     ; setup gdt
 
@@ -128,7 +204,7 @@ START:
     mov gdt_rdata.base_h, AH ; |_ write physical base addr for RCODE and RDATA
 
     mov EAX, pcode ; |
-    shl EAX, 4     ; |_ physical address of pcode
+    shl EAX, 4     ; |_ physical address of PCODE
 
     mov gdt_pcode.base_l, AX ; |
     mov gdt_pdata.base_l, AX ; |
@@ -181,12 +257,6 @@ START:
     or AL, 10b  ; |
     out 92h, AL ; |_ enable A20 line
 
-    in AL, 21h   ; | 
-    shl AX, 8    ; |
-    in AL, 0A1h  ; |
-    push AX      ; |_ save interrupt masks
-    disable_interrupts
-
     lidt idtr
     lgdt gdtr
 
@@ -200,44 +270,49 @@ START:
 
     mov AL, 11h  ; |  init sequence for...
     out 20h, AL  ; |  
-    wait4mem     ; |_ ...master
+    waitabit     ; |_ ...master
     out 0A0h, AL ; |  
-    wait4mem     ; |_ ...slave
+    waitabit     ; |_ ...slave
 
     mov AL, 20h  ; |
     out 21h, AL  ; |
-    wait4mem     ; |_ new hardware intr address for master
+    waitabit     ; |_ new hardware intr address for master
     add AL, 8    ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ new hardware intr address for slave
+    waitabit     ; |_ new hardware intr address for slave
 
     mov AL, 04h  ; |
     out 21h, AL  ; |
-    wait4mem     ; |_ line 3?
+    waitabit     ; |_ line 3?
     mov AL, 02h  ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ line 1?
+    waitabit     ; |_ line 1?
 
     mov AL, 11h  ; |  
     out 21h, AL  ; |
-    wait4mem     ; |_ fully nested mode for master
+    waitabit     ; |_ fully nested mode for master
     mov AL, 01h  ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ default mode for slave
+    waitabit     ; |_ default mode for slave
 
     ; final steps
 
+    in AL, 21h   ; | 
+    shl AX, 8    ; |
+    in AL, 0A1h  ; |
+    push AX      ; |_ save interrupt masks
+
     mov AL, 0    ; |
     out 21h, AL  ; |
-    wait4mem     ; |
+    waitabit     ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ unmask all interrupts
+    waitabit     ; |_ unmask all interrupts
+
     enable_interrupts
 
     ; we are in pmode now!
 
     fj16 PCODE_SEG, pstart
-
 
 continue:
 
@@ -249,30 +324,30 @@ continue:
 
     mov AL, 11h  ; |  init sequence for...
     out 20h, AL  ; |  
-    wait4mem     ; |_ ...master
+    waitabit     ; |_ ...master
     out 0A0h, AL ; |  
-    wait4mem     ; |_ ...slave
+    waitabit     ; |_ ...slave
 
     mov AL, 8h   ; |
     out 21h, AL  ; |
-    wait4mem     ; |_ original hardware intr address for master
+    waitabit     ; |_ original hardware intr address for master
     mov AL, 70h  ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ original hardware intr address for slave
+    waitabit     ; |_ original hardware intr address for slave
 
     mov AL, 04h  ; |
     out 21h, AL  ; |
-    wait4mem     ; |_ line 3?
+    waitabit     ; |_ line 3?
     mov AL, 02h  ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ line 1?
+    waitabit     ; |_ line 1?
 
     mov AL, 11h  ; |  
     out 21h, AL  ; |
-    wait4mem     ; |_ fully nested mode for master
+    waitabit     ; |_ fully nested mode for master
     mov AL, 01h  ; |
     out 0A1h, AL ; |
-    wait4mem     ; |_ default mode for slave
+    waitabit     ; |_ default mode for slave
 
     ; 
 
@@ -284,22 +359,23 @@ continue:
 
     mov AX, rcode               ; | 
     mov DS, AX                  ; |
-    mov SS, AX                  ; |_ DS = CS = rcode (single segment)
+    mov SS, AX                  ; |_ DS = CS = RCODE (single segment)
     mov SP, (offset rstack_end) ; | 
     mov BP, SP                  ; |_ SP = stack bottom, as stack grows up
 
     lidt null_idtr ; clear IDT
+
+    in  AL, 92h       ; |
+    and AL, (not 10b) ; |
+    out 92h, AL       ; |_ disable A20 line
 
     sub SP, 2    ; |_ we have interrupt masks stored on the stack, so reserving a word
     pop AX       ; |
     out 0A1h, AL ; |
     shr AX, 8    ; |
     out 21h, AL  ; |_ restore interrupt masks
-    enable_interrupts
 
-    in  AL, 92h       ; |
-    and AL, (not 10b) ; |
-    out 92h, AL       ; |_ disable A20 line
+    enable_interrupts
 
     ; we are back in rmode!
 
@@ -313,7 +389,55 @@ continue:
     CR = 0Dh
     LF = 0Ah
     EOL = "$"
+
+    TIMEOUT_BUF_LEN equ (6+1)
+    timeout_buf_suff db TIMEOUT_BUF_LEN, ?
+    timeout_buf db TIMEOUT_BUF_LEN dup(EOL), EOL
+
+    msg_input_timeout db "input protected mode timeout: ", EOL
     msg_end db "bye!", CR,LF, EOL
+
+
+    str2num PROC ; DS:SI - string, CX - base (up to 10)  ->  AX - result
+        push CX
+        push DX 
+        push SI
+
+        ; move if the first char is a sign
+        cmp byte ptr [SI], "-"
+        je str2num_move_sign
+        cmp byte ptr [SI], "+"
+        jne str2num_skip_move_sign
+        str2num_move_sign:
+        inc SI
+        str2num_skip_move_sign:
+
+        xor AX, AX
+        str2num_loop_next_char:
+            mul CX
+
+            xor DH, DH
+            mov DL, [SI]
+            sub DX, "0"
+            ; NOTE here base might base overflow (DX > CX)
+            add AX, DX
+        
+            inc SI
+            cmp byte ptr [SI], EOL
+            jne str2num_loop_next_char
+            
+        pop SI ; restoring SI to the start of a string
+
+        cmp byte ptr [SI], "-" ; |
+        jne str2num_skip_neg   ; |
+        neg AX                 ; |
+        str2num_skip_neg:      ; |_ first char was a minus, so negate result
+
+        ; SI was already popped
+        pop DX
+        pop CX
+        ret
+    str2num ENDP
 
 
 rstack dw 128 dup (?) 
@@ -333,43 +457,37 @@ pstart:
 
     mov AX, PDATA_SEG            ; |
     mov DS, AX                   ; |
-    mov SS, AX                   ; |_ DS = SS = pdata (virtual segments are different)
+    mov SS, AX                   ; |_ DS = SS = PDATA (virtual segments are different)
     mov ESP, (offset pstack_end) ; |
     mov EBP, ESP                 ; |_ SP = stack bottom, as stack grows up
 
     mov AX, TEXT_SEG ; |
     mov ES, AX       ; |_ ES = TEXT
 
-    mov DX, 0141h
-    tmploop:
-        mov AX, DX
-        mov ECX, 80*3
-        xor EDI, EDI
-        rep stosw
-
-        jmp tmploop
+    hang
 
     pexit:
         mov AH, 00000110b
         mov ESI, (offset pexit_msg_end)
         xor EDI, EDI
-        call puts
-        call newline
+        call pputs
+        call pnewline
 
         fj32 RCODE_SEG, continue
 
     pexit_msg_end db "[pmode] bye!", 0
 
 
-    newline PROC ; AH - color, ES:EDI - any position on the cleared line  ->  ES:EDI - next line, [ES:EDI-80 .. ES:EDI] - cleared string
+    pnewline PROC ; AH - color, ES:EDI - any position on the cleared line  ->  ES:EDI - next line, [ES:EDI-80 .. ES:EDI] - cleared string
+        push AX
         push ECX
 
         xor ECX, ECX
 
-        newline_find_line:
+        pnewline_find_line:
             add ECX, 80*2
             cmp ECX, EDI
-            jle newline_find_line
+            jle pnewline_find_line
 
         mov AL, 0
         sub ECX, EDI ; | 
@@ -377,21 +495,25 @@ pstart:
         rep stosw ; fill til the end with colored zeroes
 
         pop ECX
+        pop AX
         ret
-    newline ENDP
+    pnewline ENDP
 
-    puts PROC ; AH - color, DS:ESI - string, ES:EDI - start address  ->  DS:ESI - string end, [ES:EDI] - result
-        puts_next:
+    pputs PROC ; AH - color, DS:ESI - string, ES:EDI - start address  ->  DS:ESI - string end, [ES:EDI] - result
+        push AX
+
+        pputs_next:
             lodsb ; load char
             test AL, AL      ; |
-            jz end_puts_next ; |_ if zero, end 
+            jz end_pputs_next ; |_ if zero, end 
 
             stosw
-            jmp puts_next
-        end_puts_next:
+            jmp pputs_next
+        end_pputs_next:
 
+        pop AX
         ret
-    puts ENDP
+    pputs ENDP
 
 
     b2str PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
@@ -468,33 +590,31 @@ pstart:
 
         mov AH, 01110100b ; setup color
 
-        mov ESI, (offset exception_msg_exception)
-        call puts
-        pop EDX
-        call dw2str
-        call newline
+        call pnewline
 
-        mov ESI, (offset exception_msg_eip)
-        call puts
-        pop EDX
-        call dw2str
-        call newline
+        mov EBX, (offset exception_msgs)
+        next_msg:
+            mov ESI, [EBX]
+            call pputs
+            pop EDX
+            call dw2str
+            call pnewline
 
-        mov ESI, (offset exception_msg_cs)
-        call puts
-        pop EDX
-        call dw2str
-        call newline
+            add EBX, 4 ; next message offset (a double word)
+            cmp EBX, (offset exception_msgs_end) ; |
+            jl next_msg                          ; |_ loop til end
 
-        mov ESI, (offset exception_msg_flags)
-        call puts
-        pop EDX
-        call dw2str
-        call newline
-        call newline
+        call pnewline
 
         ; no need to sti, as rmode will do its own thing anyway
         fj32 RCODE_SEG, continue ; immediately return to rmode
+
+        exception_msgs LABEL dword
+            dd (offset exception_msg_exception)
+            dd (offset exception_msg_eip)
+            dd (offset exception_msg_cs)
+            dd (offset exception_msg_flags)
+        exception_msgs_end LABEL
 
         exception_msg_exception db "[pmode] exception: ", 0
         exception_msg_eip db "[pmode] eip: ", 0
@@ -506,59 +626,93 @@ pstart:
     ; nop
     nop_intr_master PROC near
         push AX
-
         mov  AL, 20h
         out  20h, AL
-
         pop  AX
         iret
     nop_intr_master ENDP
     nop_intr_slave PROC near
         push AX
-
         mov  AL, 20h
         out  20h, AL
         out  0A0h, AL
-
         pop  AX
         iret
     nop_intr_slave ENDP
 
 
-    ; rtc
-    rtc_intr PROC near
-        push AX
-
-        mov AL, 20h
-        out 20h, AL
-
-        inc DL
-
-        pop AX
-        iret
-    rtc_intr ENDP
-
-
     ; keyboard
     kb_intr PROC near
         push AX
+        push DX
+        push ESI
+        push EDI
 
         in AL, 60h ; get scancode
-        shl AX, 8
+
+        cmp AL, 81h           ; |
+        jne kb_intr_skip_exit ; |        
+        mov AL, 20h           ; |
+        out 20h, AL           ; |
+        fj32 PCODE_SEG, pexit ; |
+        kb_intr_skip_exit:    ; |_ if ESC was released, exit
+
+        mov AH, 00000101b ; setup color
+
+        mov EDI, 0*2 ; first line
+        mov ESI, (offset kb_intr_msg_scancode)
+        call pputs
+        
+        mov DH, AL ; |
+        call b2str ; |_ print scancode
+
         mov AL, 20h
         out 20h, AL
-        shr AX, 8
-
-        cmp AL, 01h
-        jne skip_exit
-        fj32 PCODE_SEG, pexit
-        skip_exit:
-
-        inc DL
-
+        pop EDI
+        pop ESI
+        pop DX
         pop AX
         iret
+
+        kb_intr_msg_scancode db "last scancode: ", 0
     kb_intr ENDP
+
+
+    ; rtc
+    rtc_intr PROC near
+        push AX
+        push DX
+        push ESI
+        push EDI
+
+        dec CX
+        jnz rtc_intr_skip_exit ; |        
+        mov AL, 20h            ; |
+        out 20h, AL            ; |
+        out 0Ah, AL            ; |
+        fj32 PCODE_SEG, pexit  ; |
+        rtc_intr_skip_exit:    ; |_ if CX is decremented to zero (timeout passed), exit
+
+        mov AH, 00000010b ; setup color
+
+        mov EDI, 80*2 ; second line
+        mov ESI, (offset rtc_msg_time_passed)
+        call pputs
+        
+        mov DH, CL ; |
+        call b2str ; |_ print remaining seconds
+
+        mov AL, 20h
+        out 20h, AL
+        out 0Ah, AL
+        pop EDI
+        pop ESI
+        pop DX
+        pop AX
+        iret
+
+        rtc_msg_time_passed db "time remaining: ", 0
+    rtc_intr ENDP
 
 
 pstack dw 128 dup (?)            
