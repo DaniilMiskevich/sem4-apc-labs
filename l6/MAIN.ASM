@@ -80,7 +80,7 @@ START:
         fj32 seg, lbl
     ENDM
 
-    disable_interrupts MACRO ; ->  AL - garbage
+    disable_interrupts MACRO
         push AX
 
         cli
@@ -91,7 +91,7 @@ START:
 
         pop AX
     ENDM
-    enable_interrupts MACRO ; ->  AL - garbage
+    enable_interrupts MACRO
         push AX
 
         in AL, 70h              ; |
@@ -161,31 +161,35 @@ START:
     read timeout_buf_suff
     newline 
 
+    xor EAX, EAX
     mov SI, (offset timeout_buf)
     mov CX, 10
     call str2num
-    mov CX, AX ; save result, as AL is used later
-
-    disable_interrupts
+    mov ECX, EAX ; |
+    shl ECX, 1   ; |_ seconds to the interrupt count (can't make slower than 2Hz)
 
     ; start rtc
 
-    mov AL, 8Ah         ; |
-    out 70h, AL         ; |
-    in AL, 71h          ; |
-    and AL, (not 1111b) ; |
-    or AL, CL           ; |
-    out 71h, AL         ; |_ set frequency
+    cli
 
-    mov AL, 8Bh         ; |
-    out 70h, AL         ; |
-    in AL, 71h          ; |
-    or AL, (1 shl 6)    ; |
-    out 71h, AL         ; |_ set periodic
+    mov AL, 8Ah ; |
+    out 70h, AL ; |_ select reg A and set 'update in progress' bit
+    in AL, 71h         
+    and AL, (not 1111b) ; |  clear freq bits
+    or AL, 0Fh          ; |_ set frequency to 2Hz
+    out 71h, AL
 
-    mov AL, 0Dh         ; |
-    out 70h, AL         ; |
-    in AL, 71h          ; |_ end command
+    mov AL, 8Bh ; |
+    out 70h, AL ; |_ select reg B and set 'update in progress' bit
+    in AL, 71h         
+    or AL, (1 shl 6) ; set periodic bit
+    out 71h, AL
+
+    mov AL, 0Dh ; |
+    out 70h, AL ; |_ clear 'update in progress' bit 
+    in AL, 71h  ; |_ flush whatever was read
+
+    sti
 
     ; setup gdt
 
@@ -239,17 +243,17 @@ START:
         cmp BX, IRQ_COUNT*8 
         jl setup_irq        
 
-    ; rtc interrupt
-    mov EAX, (offset rtc_intr)
-    mov idt_irqs[8*8].off_l, AX
-    shr EAX, 16
-    mov idt_irqs[8*8].off_h, AX
-
-    ; keyboard interrupt
+    ; keyboard interrupt (IRQ1)
     mov EAX, (offset kb_intr)
     mov idt_irqs[1*8].off_l, AX
     shr EAX, 16
     mov idt_irqs[1*8].off_h, AX
+
+    ; rtc interrupt (IRQ8)
+    mov EAX, (offset rtc_intr)
+    mov idt_irqs[8*8].off_l, AX
+    shr EAX, 16
+    mov idt_irqs[8*8].off_h, AX
 
     ; start entering pmode
 
@@ -267,6 +271,8 @@ START:
     next_after_pmode_set:
 
     ; reprogram interrupt controller
+
+    disable_interrupts
 
     mov AL, 11h  ; |  init sequence for...
     out 20h, AL  ; |  
@@ -469,7 +475,7 @@ pstart:
     pexit:
         mov AH, 00000110b
         mov ESI, (offset pexit_msg_end)
-        xor EDI, EDI
+        mov EDI, 2*80*2 ; third line
         call pputs
         call pnewline
 
@@ -504,7 +510,7 @@ pstart:
 
         pputs_next:
             lodsb ; load char
-            test AL, AL      ; |
+            test AL, AL       ; |
             jz end_pputs_next ; |_ if zero, end 
 
             stosw
@@ -516,61 +522,109 @@ pstart:
     pputs ENDP
 
 
-    b2str PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
+    pputb PROC ; DH - value, ES:DI - start address  ->  [ES:DI] - result
         push AX
 
         mov AL, DH       ; |
         shr AL, 4        ; |
-        call _b2str_half ; |
+        call _pputb_half ; |
         stosw            ; |_ high halfbyte
 
         mov AL, DH       ; |
-        call _b2str_half ; |
+        call _pputb_half ; |
         stosw            ; |_ low halfbyte                         
 
         pop AX
         ret
 
-        _b2str_half PROC ; AL - value to print  ->  AL - char to print
+        _pputb_half PROC ; AL - value to print  ->  AL - char to print
             and AL, 0Fh
             cmp AL, 0Ah
-            jl _b2str_half_add_0
-            jge _b2str_half_add_a
-            _b2str_half_add_0:
+            jl _pputb_half_add_0
+            jge _pputb_half_add_a
+            _pputb_half_add_0:
             add AL, ("0" - 00h)
-            jmp _b2str_half_end_add
-            _b2str_half_add_a:
+            jmp _pputb_half_end_add
+            _pputb_half_add_a:
             add AL, ("A" - 0Ah)
-            jmp _b2str_half_end_add
-            _b2str_half_end_add:
+            jmp _pputb_half_end_add
+            _pputb_half_end_add:
 
             ret
-        _b2str_half ENDP
-    b2str ENDP
-
-    w2str PROC ; DX - value, ES:DI - start address  ->  [ES:DI] - result
+        _pputb_half ENDP
+    pputb ENDP
+    pputw PROC ; DX - value, ES:DI - start address  ->  [ES:DI] - result
         push DX
 
-        call b2str ; |_ high byte 
+        call pputb ; |_ high byte 
         shl DX, 8  ; |
-        call b2str ; |_ low byte
+        call pputb ; |_ low byte
 
         pop DX
         ret
-    w2str ENDP
-
-    dw2str PROC ; EDX - value, ES:DI - start address  ->  [ES:DI] - result
+    pputw ENDP
+    pputdw PROC ; EDX - value, ES:DI - start address  ->  [ES:DI] - result
         push DX
 
         shr EDX, 16 ; |
-        call w2str  ; |_ high word
+        call pputw  ; |_ high word
         
         pop DX
 
-        call w2str ; low word
+        call pputw ; low word
 
         ret
-    dw2str ENDP
+    pputdw ENDP
+
+
+    pnum2str PROC ; AX - num, CX - base, DS:ESI - destination  ->  [DS:ESI] - result
+        NUM_END equ -1
+        push AX
+        push CX
+        push DX
+        push ESI
+
+        ; check if the msb is set = num is negative
+        test AX, 8000h
+        jz pnum2str_skip_minus
+        mov byte ptr [ESI], "-"
+        neg AX ; make num positive for convinient conversion
+        inc ESI
+        pnum2str_skip_minus:
+
+        mov DX, NUM_END
+        push DX
+        pnum2str_loop_next_char:
+            xor DX, DX
+            div CX
+
+            push DX
+        
+            test AX, AX
+            jnz pnum2str_loop_next_char
+
+        pnum2str_loop_pop_digits:
+            pop DX
+
+            cmp DX, NUM_END
+            je pnum2str_end_loop_pop_digits
+
+            ; NOTE here base might base overflow (DX > CX)
+            add DX, "0"
+            mov byte ptr [ESI], DL
+
+            inc ESI
+            jmp pnum2str_loop_pop_digits
+        pnum2str_end_loop_pop_digits:
+
+        mov byte ptr [ESI], 0
+            
+        pop ESI
+        pop DX
+        pop CX
+        pop AX
+        ret
+    pnum2str ENDP
 
 
     ; handlers
@@ -597,7 +651,7 @@ pstart:
             mov ESI, [EBX]
             call pputs
             pop EDX
-            call dw2str
+            call pputdw
             call pnewline
 
             add EBX, 4 ; next message offset (a double word)
@@ -634,8 +688,8 @@ pstart:
     nop_intr_slave PROC near
         push AX
         mov  AL, 20h
-        out  20h, AL
         out  0A0h, AL
+        out  20h, AL
         pop  AX
         iret
     nop_intr_slave ENDP
@@ -659,12 +713,12 @@ pstart:
 
         mov AH, 00000101b ; setup color
 
-        mov EDI, 0*2 ; first line
         mov ESI, (offset kb_intr_msg_scancode)
+        mov EDI, 0*2 ; first line
         call pputs
         
         mov DH, AL ; |
-        call b2str ; |_ print scancode
+        call pputb ; |_ print scancode
 
         mov AL, 20h
         out 20h, AL
@@ -674,44 +728,60 @@ pstart:
         pop AX
         iret
 
-        kb_intr_msg_scancode db "last scancode: ", 0
+        kb_intr_msg_scancode db "[pmode] last scancode: ", 0
     kb_intr ENDP
 
 
     ; rtc
     rtc_intr PROC near
-        push AX
-        push DX
+        push EAX
         push ESI
         push EDI
 
-        dec CX
-        jnz rtc_intr_skip_exit ; |        
+        mov AL, 0Ch        ; |
+        out 70h, AL        ; |
+        in AL, 71h         ; |_ select reg C and set 'update in progress' bit
+        test AL, (1 shl 6) ; |_ check if interrupt was periodic
+        jz rtc_intr_end
+
+        dec CX ; decrement remaining interrupt count
+        jg rtc_intr_skip_exit  ; |        
         mov AL, 20h            ; |
+        out 0A0h, AL           ; |
         out 20h, AL            ; |
-        out 0Ah, AL            ; |
-        fj32 PCODE_SEG, pexit  ; |
-        rtc_intr_skip_exit:    ; |_ if CX is decremented to zero (timeout passed), exit
+        fj32 PCODE_SEG, pexit  ; |_ if CX became zero or lower (timeout passed), exit
+        rtc_intr_skip_exit:    
 
         mov AH, 00000010b ; setup color
 
+        mov ESI, (offset rtc_intr_msg_time_remaining)
         mov EDI, 80*2 ; second line
-        mov ESI, (offset rtc_msg_time_passed)
         call pputs
         
-        mov DH, CL ; |
-        call b2str ; |_ print remaining seconds
-
-        mov AL, 20h
-        out 20h, AL
-        out 0Ah, AL
-        pop EDI
-        pop ESI
-        pop DX
+        push AX ; |
+        push CX ; |_ are used in the small following section
+        mov EAX, ECX ; |
+        shr EAX, 1   ; |_ back to seconds (form 2Hz), the whole value is now in EAX
+        mov CX, 10
+        mov ESI, (offset rtc_intr_time_remaining_buf)
+        call pnum2str 
+        pop CX
         pop AX
-        iret
 
-        rtc_msg_time_passed db "time remaining: ", 0
+        call pputs    ; |
+        call pnewline ; |_ print remaining seconds
+
+        rtc_intr_end:
+            mov AL, 20h
+            out 0A0h, AL
+            out 20h, AL
+            pop EDI
+            pop ESI
+            pop EAX
+            iret
+
+        rtc_intr_time_remaining_buf db 6 dup (?), 0
+        rtc_intr_msg_time_remaining db "[pmode] time remaining: ", 0
     rtc_intr ENDP
 
 
